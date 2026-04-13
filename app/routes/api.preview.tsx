@@ -12,26 +12,36 @@ const PREVIEW_HEIGHT = 600;
 const fontsDir = path.join(process.cwd(), "fonts");
 
 function ensureFontsRegistered() {
-  const scriptFont = path.join(fontsDir, "GreatVibes-Regular.ttf");
-  const blockFont = path.join(fontsDir, "Montserrat-Bold.ttf");
+  const fontFiles: Record<string, { family: string }> = {
+    "GreatVibes-Regular.ttf": { family: "GreatVibes" },
+    "Montserrat-Bold.ttf": { family: "MontserratBold" },
+    "Oswald-Bold.ttf": { family: "OswaldBold" },
+    "PlayfairDisplay-Regular.ttf": { family: "PlayfairDisplay" },
+    "CormorantGaramond-Regular.ttf": { family: "CormorantGaramond" },
+    "Montserrat-Regular.ttf": { family: "Montserrat" },
+  };
 
-  if (fs.existsSync(scriptFont)) {
-    try {
-      registerFont(scriptFont, { family: "GreatVibes" });
-    } catch {
-      // Already registered
-    }
-  }
-  if (fs.existsSync(blockFont)) {
-    try {
-      registerFont(blockFont, { family: "MontserratBold" });
-    } catch {
-      // Already registered
+  for (const [file, config] of Object.entries(fontFiles)) {
+    const fontPath = path.join(fontsDir, file);
+    if (fs.existsSync(fontPath)) {
+      try {
+        registerFont(fontPath, config);
+      } catch {
+        // Already registered
+      }
     }
   }
 }
 
 ensureFontsRegistered();
+
+const FONT_MAP: Record<string, string> = {
+  script: "GreatVibes",
+  block: "MontserratBold",
+  serif: "PlayfairDisplay",
+  sans: "Montserrat",
+  monogram_classic: "CormorantGaramond",
+};
 
 /**
  * GET /api/preview?text=ABC&style=script&color=%23000000&product_id=123&variant_id=456
@@ -50,10 +60,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const text = (url.searchParams.get("text") || "")
     .toUpperCase()
-    .replace(/[^A-Z]/g, "")
-    .slice(0, 3);
-  const style =
-    url.searchParams.get("style") === "block" ? "block" : "script";
+    .replace(/[^A-Z0-9 ]/g, "")
+    .slice(0, 10);
+  const style = url.searchParams.get("style") || "block";
   const color = url.searchParams.get("color") || "#000000";
   const format = url.searchParams.get("format") || "image";
   const productId = url.searchParams.get("product_id") || "";
@@ -73,7 +82,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     );
   }
 
-  // ─── Try to load the product base image ───
+  // ─── Try to load the product template and mockup image ───
   let baseImageUrl: string | null = null;
   let printArea = { x: 25, y: 15, width: 50, height: 35 };
 
@@ -88,46 +97,60 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       : null;
 
     try {
-      const productBase = await db.productBase.findFirst({
+      const template = await db.productTemplate.findFirst({
         where: {
           shopifyProductId: gidProductId,
           isActive: true,
           ...(shop ? { shop } : {}),
         },
         include: {
-          images: { orderBy: { sortOrder: "asc" } },
+          mockupImages: { orderBy: { sortOrder: "asc" } },
         },
       });
 
-      if (productBase) {
+      if (template) {
         printArea = {
-          x: productBase.printAreaX,
-          y: productBase.printAreaY,
-          width: productBase.printAreaWidth,
-          height: productBase.printAreaHeight,
+          x: template.printAreaX,
+          y: template.printAreaY,
+          width: template.printAreaWidth,
+          height: template.printAreaHeight,
         };
 
-        // Find best matching image
+        // Find best matching mockup image
         let matchedImage = null;
+
+        // Try to match by variant ID
         if (gidVariantId) {
-          matchedImage = productBase.images.find(
+          matchedImage = template.mockupImages.find(
             (img) => img.shopifyVariantId === gidVariantId
           );
+          // Also try numeric ID match
+          if (!matchedImage) {
+            const numericId = variantId.replace(/\D/g, "");
+            matchedImage = template.mockupImages.find(
+              (img) =>
+                img.shopifyVariantId &&
+                img.shopifyVariantId.includes(numericId)
+            );
+          }
         }
+
+        // Try default image
         if (!matchedImage) {
-          matchedImage = productBase.images.find(
-            (img) => !img.shopifyVariantId || img.shopifyVariantId === ""
-          );
+          matchedImage = template.mockupImages.find((img) => img.isDefault);
         }
-        if (!matchedImage && productBase.images.length > 0) {
-          matchedImage = productBase.images[0];
+
+        // Fall back to first image
+        if (!matchedImage && template.mockupImages.length > 0) {
+          matchedImage = template.mockupImages[0];
         }
+
         if (matchedImage) {
           baseImageUrl = matchedImage.imageUrl;
         }
       }
     } catch (error) {
-      console.error("Error loading product base:", error);
+      console.error("Error loading product template:", error);
     }
   }
 
@@ -161,18 +184,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const paW = scaledW * (printArea.width / 100);
       const paH = scaledH * (printArea.height / 100);
 
-      // Draw monogram text within the print area
-      drawMonogramInArea(ctx, text, style, color, paX, paY, paW, paH);
+      // Draw text within the print area
+      drawTextInArea(ctx, text, style, color, paX, paY, paW, paH);
     } catch (error) {
       console.error("Error loading base image, falling back:", error);
-      // Fall back to generic silhouette
       drawHatSilhouette(ctx, PREVIEW_WIDTH, PREVIEW_HEIGHT);
-      drawMonogramCentered(ctx, text, style, color, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+      drawTextCentered(ctx, text, style, color, PREVIEW_WIDTH, PREVIEW_HEIGHT);
     }
   } else {
     // No product base configured — use generic hat silhouette
     drawHatSilhouette(ctx, PREVIEW_WIDTH, PREVIEW_HEIGHT);
-    drawMonogramCentered(ctx, text, style, color, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+    drawTextCentered(ctx, text, style, color, PREVIEW_WIDTH, PREVIEW_HEIGHT);
   }
 
   const buffer = canvas.toBuffer("image/png");
@@ -212,9 +234,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 /**
- * Draw monogram text within a specific print area rectangle.
+ * Draw text within a specific print area rectangle.
+ * Supports multiple font styles and traditional monogram layout.
  */
-function drawMonogramInArea(
+function drawTextInArea(
   ctx: any,
   text: string,
   style: string,
@@ -237,28 +260,29 @@ function drawMonogramInArea(
   ctx.shadowOffsetX = 1;
   ctx.shadowOffsetY = 1;
 
-  if (style === "script") {
-    // Size to fit the print area
+  const fontFamily = FONT_MAP[style] || "MontserratBold";
+  const isScript = style === "script";
+
+  if (isScript) {
     const fontSize = Math.min(w * 0.5, h * 0.7);
-    ctx.font = `${Math.round(fontSize)}px GreatVibes`;
+    ctx.font = `${Math.round(fontSize)}px ${fontFamily}`;
     ctx.fillText(text, centerX, centerY);
+  } else if (text.length === 3 && style !== "sans") {
+    // Traditional monogram layout: first-LAST(big)-middle
+    const bigSize = Math.min(w * 0.35, h * 0.7);
+    const smallSize = bigSize * 0.65;
+    const spacing = w * 0.28;
+
+    ctx.font = `bold ${Math.round(bigSize)}px ${fontFamily}`;
+    ctx.fillText(text[1], centerX, centerY);
+
+    ctx.font = `bold ${Math.round(smallSize)}px ${fontFamily}`;
+    ctx.fillText(text[0], centerX - spacing, centerY);
+    ctx.fillText(text[2], centerX + spacing, centerY);
   } else {
-    if (text.length === 3) {
-      const bigSize = Math.min(w * 0.35, h * 0.7);
-      const smallSize = bigSize * 0.65;
-      const spacing = w * 0.28;
-
-      ctx.font = `bold ${Math.round(bigSize)}px MontserratBold`;
-      ctx.fillText(text[1], centerX, centerY);
-
-      ctx.font = `bold ${Math.round(smallSize)}px MontserratBold`;
-      ctx.fillText(text[0], centerX - spacing, centerY);
-      ctx.fillText(text[2], centerX + spacing, centerY);
-    } else {
-      const fontSize = Math.min(w * 0.4, h * 0.6);
-      ctx.font = `bold ${Math.round(fontSize)}px MontserratBold`;
-      ctx.fillText(text, centerX, centerY);
-    }
+    const fontSize = Math.min(w * 0.4, h * 0.6);
+    ctx.font = `bold ${Math.round(fontSize)}px ${fontFamily}`;
+    ctx.fillText(text, centerX, centerY);
   }
 
   // Reset shadow
@@ -269,9 +293,9 @@ function drawMonogramInArea(
 }
 
 /**
- * Draw monogram centered on the canvas (fallback when no base image).
+ * Draw text centered on the canvas (fallback when no base image).
  */
-function drawMonogramCentered(
+function drawTextCentered(
   ctx: any,
   text: string,
   style: string,
@@ -279,35 +303,7 @@ function drawMonogramCentered(
   w: number,
   h: number
 ) {
-  const centerX = w * 0.5;
-  const centerY = h * 0.38;
-
-  ctx.fillStyle = color;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  if (style === "script") {
-    const fontSize = Math.round(w * 0.18);
-    ctx.font = `${fontSize}px GreatVibes`;
-    ctx.fillText(text, centerX, centerY);
-  } else {
-    if (text.length === 3) {
-      const bigSize = Math.round(w * 0.2);
-      const smallSize = Math.round(w * 0.14);
-      const spacing = w * 0.14;
-
-      ctx.font = `bold ${bigSize}px MontserratBold`;
-      ctx.fillText(text[1], centerX, centerY);
-
-      ctx.font = `bold ${smallSize}px MontserratBold`;
-      ctx.fillText(text[0], centerX - spacing, centerY);
-      ctx.fillText(text[2], centerX + spacing, centerY);
-    } else {
-      const fontSize = Math.round(w * 0.18);
-      ctx.font = `bold ${fontSize}px MontserratBold`;
-      ctx.fillText(text, centerX, centerY);
-    }
-  }
+  drawTextInArea(ctx, text, style, color, w * 0.1, h * 0.15, w * 0.8, h * 0.5);
 }
 
 /**

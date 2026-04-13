@@ -21,24 +21,40 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
     }
 
-    // Check if this line item has monogram personalization
-    const monogramText = properties["_monogram_text"];
-    if (!monogramText) {
-      continue; // Not a personalized item, skip
-    }
+    // ─── New template-based personalization ───
+    const personalizationData = properties["_personalization_data"];
+    const templateId = properties["_template_id"];
+    const productBaseSlug = properties["_product_base"];
+    const technique = properties["_technique"];
+    const placementKey = properties["_placement"];
 
+    // ─── Legacy monogram fields ───
+    const monogramText = properties["_monogram_text"];
     const monogramStyle = properties["_monogram_style"] || "script";
     const threadColor = properties["_thread_color"] || "#000000";
+
+    // Skip if neither new nor legacy personalization data exists
+    if (!personalizationData && !monogramText) {
+      continue; // Not a personalized item
+    }
+
     const variantId = String(lineItem.variant_id);
 
-    console.log(`[webhook] Found personalized item in order ${orderName}: "${monogramText}" (${monogramStyle}, ${threadColor})`);
+    console.log(`[webhook] Found personalized item in order ${orderName}:`);
+    if (templateId) {
+      console.log(`  Template: ${templateId}, Base: ${productBaseSlug}, Technique: ${technique}, Placement: ${placementKey}`);
+    }
+    if (monogramText) {
+      console.log(`  Monogram: "${monogramText}" (${monogramStyle}, ${threadColor})`);
+    }
 
     // Check for duplicate (idempotency)
     const existing = await db.personalizationOrder.findFirst({
       where: {
         shopifyOrderId: orderId,
         shopifyVariantId: variantId,
-        monogramText: monogramText,
+        ...(monogramText ? { monogramText } : {}),
+        ...(templateId ? { templateId } : {}),
       },
     });
 
@@ -58,9 +74,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         customerName: order.shipping_address
           ? `${order.shipping_address.first_name || ""} ${order.shipping_address.last_name || ""}`.trim()
           : null,
-        monogramText,
-        monogramStyle,
-        threadColor,
+
+        // New template fields
+        templateId: templateId || null,
+        productBaseSlug: productBaseSlug || null,
+        technique: technique || null,
+        placementKey: placementKey || null,
+        personalizationData: personalizationData || "{}",
+
+        // Legacy fields (always populated for backward compat)
+        monogramText: monogramText || null,
+        monogramStyle: monogramStyle,
+        threadColor: threadColor,
+
         status: "pending",
       },
     });
