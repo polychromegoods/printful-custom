@@ -174,68 +174,64 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           height: template.printAreaHeight,
         };
 
-        // Find best matching mockup image
-        let matchedImage = null;
-
-        // Try to match by color name in DB mockups
-        if (colorName) {
-          matchedImage = template.mockupImages.find(
-            (img) => img.variantColor.toLowerCase() === colorName.toLowerCase()
-          );
+        // ★ STEP 1: Try the registry's variantMockups FIRST when colorName is provided
+        //   This is the most reliable source since the DB only has a "Default" mockup.
+        const productBase = getProductBase(template.productBaseSlug);
+        if (colorName && productBase?.variantMockups) {
+          const registryUrl = productBase.variantMockups[colorName]
+            || Object.entries(productBase.variantMockups).find(
+                ([k]) => k.toLowerCase() === colorName.toLowerCase()
+              )?.[1];
+          if (registryUrl) {
+            baseImageUrl = registryUrl;
+            console.log(`[Preview] Using registry mockup for color "${colorName}": ${registryUrl}`);
+          }
         }
 
-        // Try to match by variant ID
-        if (!matchedImage && gidVariantId) {
-          matchedImage = template.mockupImages.find(
-            (img) => img.shopifyVariantId === gidVariantId
-          );
-          // Also try numeric ID match
-          if (!matchedImage) {
-            const numericId = variantId.replace(/\D/g, "");
+        // STEP 2: If no registry match, try DB mockup images
+        if (!baseImageUrl) {
+          let matchedImage = null;
+
+          // Try to match by color name in DB mockups
+          if (colorName) {
             matchedImage = template.mockupImages.find(
-              (img) =>
-                img.shopifyVariantId &&
-                img.shopifyVariantId.includes(numericId)
+              (img) => img.variantColor.toLowerCase() === colorName.toLowerCase()
             );
           }
-        }
 
-        // Try default image
-        if (!matchedImage) {
-          matchedImage = template.mockupImages.find((img) => img.isDefault);
-        }
-
-        // Fall back to first image
-        if (!matchedImage && template.mockupImages.length > 0) {
-          matchedImage = template.mockupImages[0];
-        }
-
-        if (matchedImage) {
-          baseImageUrl = matchedImage.imageUrl;
-        }
-
-        // ★ If no DB mockup found for this color, try the registry's variantMockups
-        if (!baseImageUrl || (colorName && !matchedImage?.variantColor?.toLowerCase().includes(colorName.toLowerCase()))) {
-          const productBase = getProductBase(template.productBaseSlug);
-          if (productBase?.variantMockups) {
-            // Try exact color name match
-            const registryUrl = productBase.variantMockups[colorName]
-              || productBase.variantMockups[colorName.charAt(0).toUpperCase() + colorName.slice(1)]
-              || Object.entries(productBase.variantMockups).find(
-                  ([k]) => k.toLowerCase() === colorName.toLowerCase()
-                )?.[1];
-            if (registryUrl) {
-              baseImageUrl = registryUrl;
-              console.log(`[Preview] Using registry mockup for color "${colorName}": ${registryUrl}`);
+          // Try to match by variant ID
+          if (!matchedImage && gidVariantId) {
+            matchedImage = template.mockupImages.find(
+              (img) => img.shopifyVariantId === gidVariantId
+            );
+            if (!matchedImage) {
+              const numericId = variantId.replace(/\D/g, "");
+              matchedImage = template.mockupImages.find(
+                (img) =>
+                  img.shopifyVariantId &&
+                  img.shopifyVariantId.includes(numericId)
+              );
             }
           }
-          // If still no base image, use registry default
-          if (!baseImageUrl && !matchedImage) {
-            const productBase2 = getProductBase(template.productBaseSlug);
-            if (productBase2?.defaultMockupUrl) {
-              baseImageUrl = productBase2.defaultMockupUrl;
-            }
+
+          // Try default image
+          if (!matchedImage) {
+            matchedImage = template.mockupImages.find((img) => img.isDefault);
           }
+
+          // Fall back to first image
+          if (!matchedImage && template.mockupImages.length > 0) {
+            matchedImage = template.mockupImages[0];
+          }
+
+          if (matchedImage) {
+            baseImageUrl = matchedImage.imageUrl;
+          }
+        }
+
+        // STEP 3: Last resort — registry default mockup
+        if (!baseImageUrl && productBase?.defaultMockupUrl) {
+          baseImageUrl = productBase.defaultMockupUrl;
         }
       }
     } catch (error) {
@@ -299,6 +295,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     });
     if (productId) params.set("product_id", productId);
     if (variantId) params.set("variant_id", variantId);
+    if (handle) params.set("handle", handle);
+    if (colorName) params.set("color_name", colorName);
 
     const imageUrl = `/apps/api/preview?${params.toString()}`;
 
@@ -354,15 +352,15 @@ function drawTextInArea(
   const isScript = style === "script";
 
   if (isScript) {
-    const fontSize = Math.min(w * 0.5, h * 0.85);
+    const fontSize = Math.min(w * 0.35, h * 0.7);
     ctx.font = `${Math.round(fontSize)}px ${fontFamily}`;
     ctx.fillText(text, centerX, centerY);
   } else if (text.length === 3 && style !== "sans") {
     // Traditional monogram layout: first-LAST(big)-middle
-    const baseSize = Math.min(w * 0.5, h * 0.85);
-    const bigSize = baseSize * 1.35;
-    const smallSize = baseSize * 0.85;
-    const spacing = w * 0.28;
+    const baseSize = Math.min(w * 0.3, h * 0.7);
+    const bigSize = baseSize * 1.3;
+    const smallSize = baseSize * 0.75;
+    const spacing = w * 0.22;
 
     ctx.font = `bold ${Math.round(bigSize)}px ${fontFamily}`;
     ctx.fillText(text[1], centerX, centerY);
@@ -371,7 +369,7 @@ function drawTextInArea(
     ctx.fillText(text[0], centerX - spacing, centerY);
     ctx.fillText(text[2], centerX + spacing, centerY);
   } else {
-    const fontSize = Math.min(w * 0.5, h * 0.85);
+    const fontSize = Math.min(w * 0.35, h * 0.7);
     ctx.font = `bold ${Math.round(fontSize)}px ${fontFamily}`;
     ctx.fillText(text, centerX, centerY);
   }
