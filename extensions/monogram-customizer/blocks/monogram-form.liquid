@@ -690,9 +690,25 @@
       setTimeout(positionOverlay, 100);
     }).observe(parent, { childList: true, subtree: true, attributes: true });
 
-    // Swap to mockup if available
-    if (templateConfig && templateConfig.currentMockupUrl) {
-      swapProductImage(templateConfig.currentMockupUrl);
+    // Swap to mockup if available — try variant-specific first, then default
+    if (templateConfig) {
+      var initialMockup = templateConfig.currentMockupUrl;
+      // Try to get the correct color variant mockup on initial load
+      if (templateConfig.variantImages) {
+        var initByVariant = templateConfig.variantImages[currentVariantId];
+        if (initByVariant) {
+          initialMockup = initByVariant;
+        } else {
+          var initColor = detectSelectedColorName();
+          if (initColor) {
+            var initByColor = templateConfig.variantImages[initColor] || templateConfig.variantImages[initColor.toLowerCase()];
+            if (initByColor) initialMockup = initByColor;
+          }
+        }
+      }
+      if (initialMockup) {
+        swapProductImage(initialMockup);
+      }
     }
   }
 
@@ -842,6 +858,17 @@
 
     if (templateConfig && templateConfig.variantImages) {
       var variantImage = templateConfig.variantImages[newVariantId];
+
+      // If no direct match by Shopify variant ID, try to find by color name
+      if (!variantImage) {
+        var colorName = detectSelectedColorName();
+        if (colorName) {
+          variantImage = templateConfig.variantImages[colorName] ||
+                         templateConfig.variantImages[colorName.toLowerCase()];
+          console.log('[Customizer] Matched by color name:', colorName, !!variantImage);
+        }
+      }
+
       if (variantImage) {
         swapProductImage(variantImage);
       } else if (templateConfig.defaultMockupUrl) {
@@ -849,6 +876,49 @@
       }
     }
     renderPreview();
+  }
+
+  // Detect the currently selected color name from the variant selector UI
+  function detectSelectedColorName() {
+    // Method 1: Check checked radio input with name containing "Color" or "color"
+    var colorRadio = document.querySelector('input[type="radio"]:checked');
+    if (colorRadio) {
+      // Dawn theme uses variant-radios with labels
+      var label = colorRadio.parentElement && colorRadio.parentElement.querySelector('.visually-hidden, .sr-only');
+      if (label) return label.textContent.trim();
+      if (colorRadio.value) return colorRadio.value;
+    }
+
+    // Method 2: Check select elements for color option
+    var selects = document.querySelectorAll('select');
+    for (var i = 0; i < selects.length; i++) {
+      var sel = selects[i];
+      var labelEl = document.querySelector('label[for="' + sel.id + '"]');
+      var labelText = labelEl ? labelEl.textContent.toLowerCase() : '';
+      if (labelText.indexOf('color') !== -1 || labelText.indexOf('colour') !== -1) {
+        return sel.options[sel.selectedIndex].text.trim();
+      }
+    }
+
+    // Method 3: Look for variant-radios with a fieldset legend containing "Color"
+    var fieldsets = document.querySelectorAll('fieldset');
+    for (var j = 0; j < fieldsets.length; j++) {
+      var legend = fieldsets[j].querySelector('legend');
+      if (legend && legend.textContent.toLowerCase().indexOf('color') !== -1) {
+        var checked = fieldsets[j].querySelector('input:checked');
+        if (checked && checked.value) return checked.value;
+      }
+    }
+
+    // Method 4: Look for a swatch or option button with aria-checked or .active class
+    var activeSwatches = document.querySelectorAll('[aria-checked="true"], .swatch--active, .is-active');
+    for (var k = 0; k < activeSwatches.length; k++) {
+      var swatch = activeSwatches[k];
+      var title = swatch.getAttribute('title') || swatch.getAttribute('aria-label') || swatch.getAttribute('data-value');
+      if (title) return title;
+    }
+
+    return null;
   }
 
   // ─── Helpers ───
