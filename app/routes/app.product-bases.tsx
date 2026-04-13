@@ -850,9 +850,10 @@ export default function ProductBasesPage() {
         productCategory={selectedBase?.category}
         technique={selectedTechnique}
         mockupImageUrl={
-          editingTemplateId
+          (editingTemplateId
             ? templates.find((t) => t.id === editingTemplateId)?.mockupImages?.[0]?.imageUrl
             : undefined
+          ) || selectedBaseFromRegistry?.defaultMockupUrl || undefined
         }
       />
     </BlockStack>

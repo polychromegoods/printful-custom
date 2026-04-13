@@ -148,6 +148,8 @@ export interface ProductBase {
   placements: PrintAreaSpec[];
   /** All variant colors */
   variants: ProductVariant[];
+  /** Default mockup image URL for the visual editor (stored in public/mockups/) */
+  defaultMockupUrl?: string;
   /** Default customization layers (can be overridden per product template) */
   defaultLayers: CustomizationLayerDef[];
 }
@@ -200,6 +202,7 @@ export const PRODUCT_BASES: ProductBase[] = [
     brand: "Yupoong",
     model: "6245CM",
     category: "hat",
+    defaultMockupUrl: "/mockups/dad-hat-white.png",
     techniques: [
       { key: "embroidery", displayName: "Embroidery", isDefault: true },
       { key: "dtfilm", displayName: "DTF Printing", isDefault: false },
