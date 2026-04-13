@@ -1,90 +1,85 @@
 {% comment %}
   Cart Preview Block
-  Automatically replaces product thumbnails in the cart with the monogram
-  preview image for personalized items. Works on cart page and cart drawer.
-  Reads line item properties via the Cart AJAX API.
+  Enhances the cart drawer and cart page by swapping product thumbnails
+  with the monogram preview image for personalized items.
+  Reads the "Monogram Preview" line item property via the Cart AJAX API.
+  
+  Note: Shopify checkout and order confirmation automatically render
+  image URLs stored in visible line item properties, so this block
+  is only needed for the storefront cart drawer and cart page.
 {% endcomment %}
-
-<style>
-  .monogram-cart-thumb {
-    object-fit: contain;
-    border-radius: 4px;
-  }
-</style>
 
 <script>
   (function() {
     'use strict';
 
-    // Debounce to avoid rapid re-runs
     let debounceTimer = null;
+    let lastCartToken = '';
 
     function replaceCartThumbnails() {
       fetch('/cart.js', { credentials: 'same-origin' })
-        .then(r => r.json())
-        .then(cart => {
+        .then(function(r) { return r.json(); })
+        .then(function(cart) {
           if (!cart || !cart.items) return;
 
-          cart.items.forEach((item, index) => {
-            // Check for our preview image property
-            const previewUrl = item.properties && item.properties['_preview_image'];
+          // Avoid re-processing if cart hasn't changed
+          if (cart.token === lastCartToken) return;
+          lastCartToken = cart.token;
+
+          cart.items.forEach(function(item, index) {
+            // Check for our visible preview image property
+            var previewUrl = item.properties && item.properties['Monogram Preview'];
             if (!previewUrl) return;
 
-            // Build the full preview URL (it's a relative app proxy path)
-            const fullUrl = previewUrl;
+            // Skip data URLs for cart thumbnails (too large for img src in some browsers)
+            if (previewUrl.startsWith('data:')) return;
 
-            // Find the cart item row in the DOM
-            // Dawn theme uses various selectors; try multiple approaches
-            const cartItemSelectors = [
-              // Dawn cart page
+            // Find all cart item containers in the DOM
+            var cartItemSelectors = [
+              // Dawn theme cart page
               'cart-items .cart-item',
-              'cart-items tr',
+              'cart-items tr.cart-item',
+              'table.cart-items tbody tr',
+              // Dawn theme cart drawer
+              'cart-drawer-items .cart-item',
+              '#CartDrawer .cart-item',
+              'cart-notification .cart-notification-product',
+              // Generic selectors
               '.cart-item',
               '.cart__item',
-              // Cart drawer
-              'cart-drawer-items .cart-item',
-              '.cart-drawer__item',
               '.mini-cart__item',
-              // Generic
               '[data-cart-item]',
               '.cart-items__item',
-              'table.cart-items tbody tr'
+              '.cart-drawer__item'
             ];
 
-            let cartItems = [];
-            for (const sel of cartItemSelectors) {
-              cartItems = document.querySelectorAll(sel);
+            var cartItems = [];
+            for (var i = 0; i < cartItemSelectors.length; i++) {
+              cartItems = document.querySelectorAll(cartItemSelectors[i]);
               if (cartItems.length > 0) break;
             }
 
             if (cartItems.length === 0) return;
 
-            // Match by product title + variant or by index
-            const targetItem = cartItems[index];
+            var targetItem = cartItems[index];
             if (!targetItem) return;
 
             // Find the image inside this cart item
-            const img = targetItem.querySelector('img');
+            var img = targetItem.querySelector('img');
             if (!img) return;
 
             // Only replace if not already replaced
             if (img.dataset.monogramReplaced === 'true') return;
 
-            // Store original src for potential restoration
             img.dataset.originalSrc = img.src;
             img.dataset.monogramReplaced = 'true';
-
-            // Replace with our preview image
-            img.src = fullUrl;
-            img.srcset = ''; // Clear srcset to prevent override
-            img.classList.add('monogram-cart-thumb');
-
-            // Also update any lazy-load attributes
-            if (img.dataset.src) img.dataset.src = fullUrl;
+            img.src = previewUrl;
+            img.srcset = '';
+            if (img.dataset.src) img.dataset.src = previewUrl;
             if (img.dataset.srcset) img.dataset.srcset = '';
           });
         })
-        .catch(err => {
+        .catch(function(err) {
           console.warn('Monogram cart preview: Could not fetch cart data', err);
         });
     }
@@ -101,18 +96,16 @@
       document.addEventListener('DOMContentLoaded', debouncedReplace);
     }
 
-    // Re-run when cart drawer opens or cart page updates
     // Watch for DOM changes (cart drawer opening, AJAX cart updates)
-    const observer = new MutationObserver(debouncedReplace);
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
+    var observer = new MutationObserver(function() {
+      // Reset lastCartToken on DOM change to force re-check
+      lastCartToken = '';
+      debouncedReplace();
     });
+    observer.observe(document.body, { childList: true, subtree: true });
 
-    // Also listen for Shopify section rendering events
+    // Listen for Shopify and custom cart events
     document.addEventListener('shopify:section:load', debouncedReplace);
-
-    // Listen for cart update events (some themes dispatch these)
     document.addEventListener('cart:updated', debouncedReplace);
     document.addEventListener('cart:refresh', debouncedReplace);
   })();
@@ -122,7 +115,6 @@
 {
   "name": "Monogram Cart Preview",
   "target": "body",
-  "templates": ["cart"],
   "settings": []
 }
 {% endschema %}
