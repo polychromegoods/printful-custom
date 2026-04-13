@@ -44,6 +44,8 @@ import {
   getPlacementsForTechnique,
 } from "../config/product-bases";
 import type { ProductBase, TechniqueKey, PrintAreaSpec } from "../config/product-bases";
+import { LayerEditor } from "../components/LayerEditor";
+import type { LayerData, PrintArea } from "../components/LayerEditor";
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -701,130 +703,25 @@ export default function ProductBasesPage() {
 
   const renderStep3 = () => (
     <BlockStack gap="400">
-      <Text as="h2" variant="headingMd">Step 3: Configure Layers</Text>
+      <Text as="h2" variant="headingMd">Step 3: Visual Layer Editor</Text>
       <Text as="p" variant="bodyMd" tone="subdued">
-        Layers are the customizable elements. They are composited in order to create the final print file.
+        Drag the print area to position it on the mockup. Add layers and drag them within the print area.
+        Use the properties panel on the right to configure each layer.
       </Text>
-      {layers.map((layer, index) => (
-        <Card key={index}>
-          <BlockStack gap="300">
-            <InlineStack align="space-between">
-              <Text as="h3" variant="headingSm">Layer {index + 1}: {layer.label}</Text>
-              <Button
-                variant="plain"
-                tone="critical"
-                onClick={() => setLayers(layers.filter((_, i) => i !== index))}
-              >
-                Remove
-              </Button>
-            </InlineStack>
-            <InlineGrid columns={2} gap="300">
-              <Select
-                label="Type"
-                options={[
-                  { label: "Text", value: "text" },
-                  { label: "Image Upload", value: "image" },
-                  { label: "Fixed Image", value: "fixed_image" },
-                ]}
-                value={layer.layerType}
-                onChange={(val) => {
-                  const updated = [...layers];
-                  updated[index] = { ...updated[index], layerType: val };
-                  setLayers(updated);
-                }}
-              />
-              <TextField
-                label="Label"
-                value={layer.label}
-                onChange={(val) => {
-                  const updated = [...layers];
-                  updated[index] = { ...updated[index], label: val };
-                  setLayers(updated);
-                }}
-                autoComplete="off"
-              />
-            </InlineGrid>
-            <Checkbox
-              label="Customer can edit this layer"
-              checked={layer.customerEditable}
-              onChange={(val) => {
-                const updated = [...layers];
-                updated[index] = { ...updated[index], customerEditable: val };
-                setLayers(updated);
-              }}
-            />
-            {layer.layerType === "text" && (
-              <InlineGrid columns={3} gap="300">
-                <TextField
-                  label="Max characters"
-                  type="number"
-                  value={String(layer.maxChars || 3)}
-                  onChange={(val) => {
-                    const updated = [...layers];
-                    updated[index] = { ...updated[index], maxChars: parseInt(val) || 3 };
-                    setLayers(updated);
-                  }}
-                  autoComplete="off"
-                />
-                <TextField
-                  label="Placeholder"
-                  value={layer.placeholder || ""}
-                  onChange={(val) => {
-                    const updated = [...layers];
-                    updated[index] = { ...updated[index], placeholder: val };
-                    setLayers(updated);
-                  }}
-                  autoComplete="off"
-                />
-                <Select
-                  label="Default Font"
-                  options={fonts.map((f) => ({ label: f.displayName, value: f.key }))}
-                  value={layer.defaultFont || "script"}
-                  onChange={(val) => {
-                    const updated = [...layers];
-                    updated[index] = { ...updated[index], defaultFont: val };
-                    setLayers(updated);
-                  }}
-                />
-              </InlineGrid>
-            )}
-            {layer.layerType === "fixed_image" && (
-              <TextField
-                label="Fixed Image URL"
-                value={layer.fixedImageUrl || ""}
-                onChange={(val) => {
-                  const updated = [...layers];
-                  updated[index] = { ...updated[index], fixedImageUrl: val };
-                  setLayers(updated);
-                }}
-                autoComplete="off"
-                helpText="URL to a fixed image (e.g., a frame or logo) that cannot be changed by the customer"
-              />
-            )}
-          </BlockStack>
-        </Card>
-      ))}
-      <InlineStack gap="200">
-        <Button onClick={() => setLayers([...layers, {
-          layerType: "text", label: "Custom Text", customerEditable: true,
-          maxChars: 20, placeholder: "Your Text", defaultFont: "script", defaultColor: "#000000",
-          positionX: 10, positionY: 10, positionWidth: 80, positionHeight: 80,
-        }])}>
-          + Add Text Layer
-        </Button>
-        <Button onClick={() => setLayers([...layers, {
-          layerType: "image", label: "Upload Image", customerEditable: true,
-          positionX: 10, positionY: 10, positionWidth: 80, positionHeight: 80,
-        }])}>
-          + Add Image Upload Layer
-        </Button>
-        <Button onClick={() => setLayers([...layers, {
-          layerType: "fixed_image", label: "Frame", customerEditable: false,
-          fixedImageUrl: "", positionX: 0, positionY: 0, positionWidth: 100, positionHeight: 100,
-        }])}>
-          + Add Fixed Image Layer
-        </Button>
-      </InlineStack>
+      <LayerEditor
+        layers={layers as LayerData[]}
+        onLayersChange={(newLayers) => setLayers(newLayers)}
+        printArea={{ x: printAreaX, y: printAreaY, width: printAreaWidth, height: printAreaHeight }}
+        onPrintAreaChange={(pa) => {
+          setPrintAreaX(pa.x);
+          setPrintAreaY(pa.y);
+          setPrintAreaWidth(pa.width);
+          setPrintAreaHeight(pa.height);
+        }}
+        fonts={fonts.map((f) => ({ key: f.key, displayName: f.displayName }))}
+        productCategory={selectedBase?.category}
+        technique={selectedTechnique}
+      />
     </BlockStack>
   );
 
@@ -918,63 +815,56 @@ export default function ProductBasesPage() {
     </BlockStack>
   );
 
+  // Step 5 is now merged into Step 3 (Visual Layer Editor)
+  // Kept as a lightweight summary/fine-tune step
   const renderStep5 = () => (
     <BlockStack gap="400">
-      <Text as="h2" variant="headingMd">Step 5: Print Area Position</Text>
+      <Text as="h2" variant="headingMd">Step 5: Review Print Area & Layers</Text>
       <Text as="p" variant="bodyMd" tone="subdued">
-        Adjust where the personalization appears on the mockup preview image.
-        Values are percentages of the mockup image dimensions.
+        Fine-tune the print area position and review layer configuration.
+        You can go back to Step 3 to use the visual editor.
       </Text>
+      <Banner tone="info">
+        <BlockStack gap="100">
+          <Text as="p" variant="bodyMd">
+            <strong>Print Area:</strong> X: {Math.round(printAreaX)}%, Y: {Math.round(printAreaY)}%, 
+            Width: {Math.round(printAreaWidth)}%, Height: {Math.round(printAreaHeight)}%
+          </Text>
+          <Text as="p" variant="bodyMd">
+            <strong>Layers:</strong> {layers.length} layer(s) — {layers.map((l: any) => l.label).join(", ")}
+          </Text>
+        </BlockStack>
+      </Banner>
       <InlineGrid columns={2} gap="400">
         <RangeSlider
-          label={`X Position: ${printAreaX}%`}
+          label={`X Position: ${Math.round(printAreaX)}%`}
           value={printAreaX}
           min={0} max={80} step={1}
           onChange={(val) => setPrintAreaX(val as number)}
           output
         />
         <RangeSlider
-          label={`Y Position: ${printAreaY}%`}
+          label={`Y Position: ${Math.round(printAreaY)}%`}
           value={printAreaY}
           min={0} max={80} step={1}
           onChange={(val) => setPrintAreaY(val as number)}
           output
         />
         <RangeSlider
-          label={`Width: ${printAreaWidth}%`}
+          label={`Width: ${Math.round(printAreaWidth)}%`}
           value={printAreaWidth}
           min={10} max={100} step={1}
           onChange={(val) => setPrintAreaWidth(val as number)}
           output
         />
         <RangeSlider
-          label={`Height: ${printAreaHeight}%`}
+          label={`Height: ${Math.round(printAreaHeight)}%`}
           value={printAreaHeight}
           min={5} max={100} step={1}
           onChange={(val) => setPrintAreaHeight(val as number)}
           output
         />
       </InlineGrid>
-      <Box padding="400" background="bg-surface-secondary" borderRadius="200">
-        <div style={{ position: "relative", width: "100%", paddingBottom: "75%", backgroundColor: "#e5e5e5", borderRadius: 8, overflow: "hidden" }}>
-          <div style={{
-            position: "absolute",
-            left: `${printAreaX}%`,
-            top: `${printAreaY}%`,
-            width: `${printAreaWidth}%`,
-            height: `${printAreaHeight}%`,
-            border: "2px dashed #007ace",
-            backgroundColor: "rgba(0, 122, 206, 0.1)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 12,
-            color: "#007ace",
-          }}>
-            Print Area
-          </div>
-        </div>
-      </Box>
     </BlockStack>
   );
 
@@ -1092,7 +982,7 @@ export default function ProductBasesPage() {
   };
 
   const wizardSteps = [renderStep1, renderStep2, renderStep3, renderStep4, renderStep5, renderStep6, renderSummary];
-  const stepTitles = ["Product Base", "Technique", "Layers", "Options", "Print Area", "Shopify Link", "Review"];
+  const stepTitles = ["Product Base", "Technique", "Visual Editor", "Options", "Fine-Tune", "Shopify Link", "Review"];
   const totalSteps = wizardSteps.length;
 
   const canAdvance = () => {
