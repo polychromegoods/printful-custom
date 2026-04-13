@@ -1,90 +1,127 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
-import { createCanvas, loadImage, registerFont } from "canvas";
-import path from "path";
-import fs from "fs";
 import db from "../db.server";
 import { getProductBase } from "../config/product-bases";
+import { getSharp } from "../fonts/setup-fonts";
+
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const PREVIEW_SIZE = 600;
 
 /**
- * Fetch an image URL and return a buffer that node-canvas can load.
- * node-canvas does NOT support webp, so we detect webp and convert
- * to PNG using raw pixel manipulation via canvas itself.
+ * Map font key → SVG font-family name.
+ * These must match the family names declared in app/fonts/fonts.conf
+ * so that librsvg (used by sharp) can resolve them.
  */
-async function fetchImageBuffer(imageUrl: string): Promise<Buffer> {
-  const resp = await fetch(imageUrl);
-  if (!resp.ok) throw new Error(`Failed to fetch image: ${resp.status}`);
-  const arrayBuf = await resp.arrayBuffer();
-  const buf = Buffer.from(arrayBuf);
-
-  // Check if it's a webp by magic bytes (RIFF....WEBP)
-  const isWebp = buf.length > 12 &&
-    buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
-    buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50;
-
-  // Also check URL extension as fallback
-  const urlLower = imageUrl.toLowerCase();
-  if (isWebp || urlLower.endsWith('.webp')) {
-    // Use sharp if available, otherwise try a workaround
-    try {
-      const sharp = require('sharp');
-      return await sharp(buf).png().toBuffer();
-    } catch {
-      // sharp not available — try using the canvas-based decode
-      // This won't work for webp either, so we'll need sharp
-      throw new Error('WebP image detected but sharp is not installed. Run: npm install sharp');
-    }
-  }
-
-  return buf;
-}
-
-// Preview dimensions
-const PREVIEW_WIDTH = 600;
-const PREVIEW_HEIGHT = 600;
-
-// Register fonts
-const fontsDir = path.join(process.cwd(), "fonts");
-
-function ensureFontsRegistered() {
-  const fontFiles: Record<string, { family: string }> = {
-    "GreatVibes-Regular.ttf": { family: "GreatVibes" },
-    "Montserrat-Bold.ttf": { family: "MontserratBold" },
-    "Oswald-Bold.ttf": { family: "OswaldBold" },
-    "PlayfairDisplay-Regular.ttf": { family: "PlayfairDisplay" },
-    "CormorantGaramond-Regular.ttf": { family: "CormorantGaramond" },
-    "Montserrat-Regular.ttf": { family: "Montserrat" },
-  };
-
-  for (const [file, config] of Object.entries(fontFiles)) {
-    const fontPath = path.join(fontsDir, file);
-    if (fs.existsSync(fontPath)) {
-      try {
-        registerFont(fontPath, config);
-      } catch {
-        // Already registered
-      }
-    }
-  }
-}
-
-ensureFontsRegistered();
-
-const FONT_MAP: Record<string, string> = {
-  script: "GreatVibes",
-  block: "MontserratBold",
-  serif: "PlayfairDisplay",
+const SVG_FONT_MAP: Record<string, string> = {
+  script: "Great Vibes",       // TODO: bundle this font
+  block: "Oswald",
+  serif: "Playfair Display",
   sans: "Montserrat",
-  monogram_classic: "CormorantGaramond",
+  monogram_classic: "Cormorant Garamond",
 };
 
+// FONTCONFIG_PATH is set by setup-fonts.ts before sharp loads
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Escape text for safe embedding in SVG */
+function svgEscape(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 /**
- * GET /api/preview?text=ABC&style=script&color=%23000000&product_id=123&variant_id=456
+ * Build an SVG string that renders the monogram text.
+ * Coordinates are in pixels relative to a PREVIEW_SIZE × PREVIEW_SIZE canvas.
+ */
+function buildTextSvg(
+  text: string,
+  style: string,
+  color: string,
+  paX: number,
+  paY: number,
+  paW: number,
+  paH: number,
+): string {
+  const fontFamily = SVG_FONT_MAP[style] || "Montserrat";
+  const isScript = style === "script";
+  const centerX = paX + paW / 2;
+  const centerY = paY + paH / 2;
+
+  let textElements = "";
+
+  // SVG uses dominant-baseline="central" for vertical centering
+  const baseline = 'dominant-baseline="central"';
+  const anchor = 'text-anchor="middle"';
+  const fill = `fill="${svgEscape(color)}"`;
+  const weight = isScript ? "" : ' font-weight="bold"';
+
+  if (
+    text.length === 3 &&
+    !isScript &&
+    style !== "sans"
+  ) {
+    // Traditional monogram: first-LAST(big)-middle
+    // Match monogram.server.ts sizing: bigSize = min(w*0.45, h*0.75), smallSize = bigSize*0.65
+    const bigSize = Math.min(paW * 0.45, paH * 0.75);
+    const smallSize = bigSize * 0.65;
+    const spacing = paW * 0.28;
+
+    const first = svgEscape(text[0]);
+    const last = svgEscape(text[1]);
+    const middle = svgEscape(text[2]);
+
+    // Center letter (last initial, larger)
+    textElements += `<text x="${centerX}" y="${centerY}" font-family="${fontFamily}" font-size="${Math.round(bigSize)}"${weight} ${fill} ${anchor} ${baseline}>${last}</text>`;
+    // Left letter (first initial)
+    textElements += `<text x="${centerX - spacing}" y="${centerY + bigSize * 0.03}" font-family="${fontFamily}" font-size="${Math.round(smallSize)}"${weight} ${fill} ${anchor} ${baseline}>${first}</text>`;
+    // Right letter (middle initial)
+    textElements += `<text x="${centerX + spacing}" y="${centerY + bigSize * 0.03}" font-family="${fontFamily}" font-size="${Math.round(smallSize)}"${weight} ${fill} ${anchor} ${baseline}>${middle}</text>`;
+  } else {
+    // Script, sans, or non-3-letter: just center the text
+    const fontSize = isScript
+      ? Math.min(paW * 0.5, paH * 0.7)
+      : Math.min(paW * 0.4, paH * 0.6);
+    const escaped = svgEscape(text);
+    textElements = `<text x="${centerX}" y="${centerY}" font-family="${fontFamily}" font-size="${Math.round(fontSize)}"${weight} ${fill} ${anchor} ${baseline}>${escaped}</text>`;
+  }
+
+  // Add a subtle drop shadow via SVG filter
+  return `<svg width="${PREVIEW_SIZE}" height="${PREVIEW_SIZE}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow" x="-5%" y="-5%" width="115%" height="115%">
+      <feDropShadow dx="1" dy="1" stdDeviation="1" flood-color="rgba(0,0,0,0.12)" />
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    ${textElements}
+  </g>
+</svg>`;
+}
+
+/**
+ * Build a simple hat silhouette SVG as fallback when no mockup is available.
+ */
+function buildSilhouetteSvg(): string {
+  const w = PREVIEW_SIZE;
+  const h = PREVIEW_SIZE;
+  return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+  <rect width="${w}" height="${h}" fill="#f5f5f5"/>
+  <path d="M${w * 0.15},${h * 0.55} Q${w * 0.15},${h * 0.12} ${w * 0.5},${h * 0.1} Q${w * 0.85},${h * 0.12} ${w * 0.85},${h * 0.55} Z" fill="#e8e8e8" stroke="#ccc" stroke-width="1"/>
+  <path d="M${w * 0.05},${h * 0.58} Q${w * 0.5},${h * 0.5} ${w * 0.95},${h * 0.58} Q${w * 0.5},${h * 0.68} ${w * 0.05},${h * 0.58} Z" fill="#ddd" stroke="#ccc" stroke-width="1"/>
+</svg>`;
+}
+
+// ─── Main Loader ────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/preview?text=ABC&style=serif&color=%23000000&product_id=123&handle=hat-2&color_name=Spruce
  *
- * Generates a monogram preview image composited onto the real product base image.
- * If no product base is configured, falls back to a generic hat silhouette.
- *
- * Called via Shopify App Proxy at:
- *   /apps/api/preview?text=ABC&style=script&color=%23000000&product_id=123&variant_id=456
+ * Generates a monogram preview image composited onto the real product mockup.
+ * Uses sharp (libvips) for all image operations — no node-canvas dependency.
  *
  * Supports two response formats:
  *   - format=image (default): Returns raw PNG bytes
@@ -103,6 +140,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const variantId = url.searchParams.get("variant_id") || "";
   const shop = url.searchParams.get("shop") || "";
   const colorName = url.searchParams.get("color_name") || "";
+  const handle = url.searchParams.get("handle") || "";
 
   if (!text) {
     return new Response(
@@ -113,58 +151,66 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           "Content-Type": "application/json",
           "Access-Control-Allow-Origin": "*",
         },
-      }
+      },
     );
   }
 
-  // ─── Try to load the product template and mockup image ───
+  // ─── Resolve the product template and mockup image URL ───
   let baseImageUrl: string | null = null;
   let printArea = { x: 25, y: 15, width: 50, height: 35 };
 
-  const handle = url.searchParams.get("handle") || "";
-
   if (productId || handle) {
-    // Extract numeric ID for flexible matching
     const numericProductId = productId
-      ? (productId.startsWith("gid://") ? productId.split("/").pop()! : productId)
+      ? productId.startsWith("gid://")
+        ? productId.split("/").pop()!
+        : productId
       : "";
-    const gidProductId = numericProductId ? `gid://shopify/Product/${numericProductId}` : "";
+    const gidProductId = numericProductId
+      ? `gid://shopify/Product/${numericProductId}`
+      : "";
     const gidVariantId = variantId
-      ? `gid://shopify/ProductVariant/${variantId.startsWith("gid://") ? variantId.split("/").pop()! : variantId}`
+      ? `gid://shopify/ProductVariant/${
+          variantId.startsWith("gid://") ? variantId.split("/").pop()! : variantId
+        }`
       : null;
 
     try {
-      // Try multiple ID formats for robust matching
-      const includeOpts = { mockupImages: { orderBy: { sortOrder: "asc" } as const } };
-      let template = gidProductId ? await db.productTemplate.findFirst({
-        where: { shopifyProductId: gidProductId, isActive: true, ...(shop ? { shop } : {}) },
-        include: includeOpts,
-      }) : null;
-      if (!template && gidProductId) {
-        template = await db.productTemplate.findFirst({
-          where: { shopifyProductId: gidProductId, isActive: true },
-          include: includeOpts,
-        });
-      }
-      if (!template && numericProductId) {
-        template = await db.productTemplate.findFirst({
-          where: { shopifyProductId: numericProductId, isActive: true },
-          include: includeOpts,
-        });
-      }
-      if (!template && numericProductId) {
-        template = await db.productTemplate.findFirst({
-          where: { shopifyProductId: { contains: numericProductId }, isActive: true },
-          include: includeOpts,
-        });
-      }
-      // Handle-based fallback (storefront legacy ID may differ from Admin GID)
-      if (!template && handle) {
-        template = await db.productTemplate.findFirst({
-          where: { productHandle: handle, isActive: true },
-          include: includeOpts,
-        });
-      }
+      const includeOpts = {
+        mockupImages: { orderBy: { sortOrder: "asc" } as const },
+      };
+
+      // Multi-strategy template lookup
+      let template =
+        (gidProductId
+          ? await db.productTemplate.findFirst({
+              where: { shopifyProductId: gidProductId, isActive: true, ...(shop ? { shop } : {}) },
+              include: includeOpts,
+            })
+          : null) ||
+        (gidProductId
+          ? await db.productTemplate.findFirst({
+              where: { shopifyProductId: gidProductId, isActive: true },
+              include: includeOpts,
+            })
+          : null) ||
+        (numericProductId
+          ? await db.productTemplate.findFirst({
+              where: { shopifyProductId: numericProductId, isActive: true },
+              include: includeOpts,
+            })
+          : null) ||
+        (numericProductId
+          ? await db.productTemplate.findFirst({
+              where: { shopifyProductId: { contains: numericProductId }, isActive: true },
+              include: includeOpts,
+            })
+          : null) ||
+        (handle
+          ? await db.productTemplate.findFirst({
+              where: { productHandle: handle, isActive: true },
+              include: includeOpts,
+            })
+          : null);
 
       if (template) {
         printArea = {
@@ -174,144 +220,182 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           height: template.printAreaHeight,
         };
 
-        // ★ STEP 1: Try the registry's variantMockups FIRST when colorName is provided
-        //   This is the most reliable source since the DB only has a "Default" mockup.
         const productBase = getProductBase(template.productBaseSlug);
-        if (colorName && productBase?.variantMockups) {
-          const registryUrl = productBase.variantMockups[colorName]
-            || Object.entries(productBase.variantMockups).find(
-                ([k]) => k.toLowerCase() === colorName.toLowerCase()
-              )?.[1];
-          if (registryUrl) {
-            baseImageUrl = registryUrl;
-            console.log(`[Preview] Using registry mockup for color "${colorName}": ${registryUrl}`);
-          }
-        }
 
-        // STEP 2: If no registry match, try DB mockup images
-        if (!baseImageUrl) {
-          let matchedImage = null;
-
-          // Try to match by color name in DB mockups
-          if (colorName) {
-            matchedImage = template.mockupImages.find(
-              (img) => img.variantColor.toLowerCase() === colorName.toLowerCase()
-            );
-          }
-
-          // Try to match by variant ID
-          if (!matchedImage && gidVariantId) {
-            matchedImage = template.mockupImages.find(
-              (img) => img.shopifyVariantId === gidVariantId
-            );
-            if (!matchedImage) {
-              const numericId = variantId.replace(/\D/g, "");
-              matchedImage = template.mockupImages.find(
-                (img) =>
-                  img.shopifyVariantId &&
-                  img.shopifyVariantId.includes(numericId)
-              );
-            }
-          }
-
-          // Try default image
-          if (!matchedImage) {
-            matchedImage = template.mockupImages.find((img) => img.isDefault);
-          }
-
-          // Fall back to first image
-          if (!matchedImage && template.mockupImages.length > 0) {
-            matchedImage = template.mockupImages[0];
-          }
+        // STEP 1: DB mockup images (user-uploaded, most reliable)
+        if (template.mockupImages.length > 0) {
+          let matchedImage =
+            (colorName
+              ? template.mockupImages.find(
+                  (img) => img.variantColor.toLowerCase() === colorName.toLowerCase(),
+                )
+              : null) ||
+            (gidVariantId
+              ? template.mockupImages.find((img) => img.shopifyVariantId === gidVariantId)
+              : null) ||
+            template.mockupImages.find((img) => img.isDefault) ||
+            template.mockupImages[0];
 
           if (matchedImage) {
-            baseImageUrl = matchedImage.imageUrl;
+            // If we have a color-specific DB match, use it directly
+            // If we only have a generic/default match and a specific color was requested,
+            // try the registry first for the correct color
+            const isExactColorMatch = colorName &&
+              matchedImage.variantColor.toLowerCase() === colorName.toLowerCase();
+
+            if (isExactColorMatch || !colorName) {
+              baseImageUrl = matchedImage.imageUrl;
+              console.log(`[Preview] DB mockup (exact match): ${matchedImage.variantColor}`);
+            } else {
+              // We have a DB mockup but it's not the right color — try registry first
+              if (productBase?.variantMockups) {
+                const registryUrl =
+                  productBase.variantMockups[colorName] ||
+                  Object.entries(productBase.variantMockups).find(
+                    ([k]) => k.toLowerCase() === colorName.toLowerCase(),
+                  )?.[1];
+                if (registryUrl) {
+                  baseImageUrl = registryUrl;
+                  console.log(`[Preview] Registry mockup for "${colorName}": ${registryUrl.slice(-30)}`);
+                }
+              }
+              // If registry didn't have it either, use the DB default
+              if (!baseImageUrl) {
+                baseImageUrl = matchedImage.imageUrl;
+                console.log(`[Preview] DB mockup (fallback): ${matchedImage.variantColor}`);
+              }
+            }
           }
         }
 
-        // STEP 3: Last resort — registry default mockup
+        // STEP 2: Registry variantMockups (fallback when no DB mockup at all)
+        if (!baseImageUrl && colorName && productBase?.variantMockups) {
+          const registryUrl =
+            productBase.variantMockups[colorName] ||
+            Object.entries(productBase.variantMockups).find(
+              ([k]) => k.toLowerCase() === colorName.toLowerCase(),
+            )?.[1];
+          if (registryUrl) {
+            baseImageUrl = registryUrl;
+            console.log(`[Preview] Registry mockup for "${colorName}": ${registryUrl.slice(-30)}`);
+          }
+        }
+
+        // STEP 3: Registry default
         if (!baseImageUrl && productBase?.defaultMockupUrl) {
           baseImageUrl = productBase.defaultMockupUrl;
+          console.log(`[Preview] Registry default mockup`);
         }
+      } else {
+        console.log(`[Preview] No template found for product_id=${productId} handle=${handle}`);
       }
     } catch (error) {
-      console.error("Error loading product template:", error);
+      console.error("[Preview] Error loading template:", error);
     }
   }
 
-  // ─── Generate the preview image ───
-  const canvas = createCanvas(PREVIEW_WIDTH, PREVIEW_HEIGHT);
-  const ctx = canvas.getContext("2d");
+  // ─── Generate the preview image with sharp ───
+  const sharpFn = await getSharp();
+  let outputBuffer: Buffer;
 
-  if (baseImageUrl) {
-    // Load and draw the real product base image
-    try {
-      const imgBuffer = await fetchImageBuffer(baseImageUrl);
-      const baseImage = await loadImage(imgBuffer);
-      // Scale to fit canvas while maintaining aspect ratio
-      const scale = Math.min(
-        PREVIEW_WIDTH / baseImage.width,
-        PREVIEW_HEIGHT / baseImage.height
-      );
-      const scaledW = baseImage.width * scale;
-      const scaledH = baseImage.height * scale;
-      const offsetX = (PREVIEW_WIDTH - scaledW) / 2;
-      const offsetY = (PREVIEW_HEIGHT - scaledH) / 2;
+  try {
+    if (baseImageUrl) {
+      // Fetch the mockup image
+      const resp = await fetch(baseImageUrl);
+      if (!resp.ok) throw new Error(`Fetch failed: ${resp.status} for ${baseImageUrl}`);
+      const imgBuf = Buffer.from(await resp.arrayBuffer());
 
-      // White background
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT);
-
-      ctx.drawImage(baseImage, offsetX, offsetY, scaledW, scaledH);
+      // Resize to PREVIEW_SIZE × PREVIEW_SIZE with white background
+      const resizedBase = await sharpFn(imgBuf)
+        .resize(PREVIEW_SIZE, PREVIEW_SIZE, {
+          fit: "contain",
+          background: { r: 255, g: 255, b: 255, alpha: 1 },
+        })
+        .png()
+        .toBuffer();
 
       // Calculate print area in pixel coordinates
+      // The image is "contain" fitted, so we need to figure out the actual image bounds
+      const metadata = await sharpFn(imgBuf).metadata();
+      const srcW = metadata.width || PREVIEW_SIZE;
+      const srcH = metadata.height || PREVIEW_SIZE;
+      const scale = Math.min(PREVIEW_SIZE / srcW, PREVIEW_SIZE / srcH);
+      const scaledW = srcW * scale;
+      const scaledH = srcH * scale;
+      const offsetX = (PREVIEW_SIZE - scaledW) / 2;
+      const offsetY = (PREVIEW_SIZE - scaledH) / 2;
+
       const paX = offsetX + scaledW * (printArea.x / 100);
       const paY = offsetY + scaledH * (printArea.y / 100);
       const paW = scaledW * (printArea.width / 100);
       const paH = scaledH * (printArea.height / 100);
 
-      // Draw text within the print area
-      drawTextInArea(ctx, text, style, color, paX, paY, paW, paH);
-    } catch (error) {
-      console.error("Error loading base image, falling back:", error);
-      drawHatSilhouette(ctx, PREVIEW_WIDTH, PREVIEW_HEIGHT);
-      drawTextCentered(ctx, text, style, color, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+      // Build SVG text overlay
+      const textSvg = buildTextSvg(text, style, color, paX, paY, paW, paH);
+
+      // Composite text onto the mockup
+      outputBuffer = await sharpFn(resizedBase)
+        .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
+        .png()
+        .toBuffer();
+
+      console.log(`[Preview] Generated ${text} (${style}, ${color}) on ${colorName || "default"}`);
+    } else {
+      // No mockup available — render silhouette + text
+      const silhouetteSvg = buildSilhouetteSvg();
+      const silhouetteBuffer = await sharpFn(Buffer.from(silhouetteSvg))
+        .png()
+        .toBuffer();
+
+      // Default print area for silhouette
+      const paX = PREVIEW_SIZE * 0.1;
+      const paY = PREVIEW_SIZE * 0.15;
+      const paW = PREVIEW_SIZE * 0.8;
+      const paH = PREVIEW_SIZE * 0.35;
+
+      const textSvg = buildTextSvg(text, style, color, paX, paY, paW, paH);
+
+      outputBuffer = await sharpFn(silhouetteBuffer)
+        .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
+        .png()
+        .toBuffer();
+
+      console.log(`[Preview] Generated ${text} on silhouette (no mockup found)`);
     }
-  } else {
-    // No product base configured — use generic hat silhouette
-    drawHatSilhouette(ctx, PREVIEW_WIDTH, PREVIEW_HEIGHT);
-    drawTextCentered(ctx, text, style, color, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+  } catch (error) {
+    console.error("[Preview] Image generation error:", error);
+
+    // Last-resort fallback: silhouette with text, all via SVG
+    const fallbackSvg = `<svg width="${PREVIEW_SIZE}" height="${PREVIEW_SIZE}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${PREVIEW_SIZE}" height="${PREVIEW_SIZE}" fill="#f5f5f5"/>
+      <text x="${PREVIEW_SIZE / 2}" y="${PREVIEW_SIZE / 2}" font-family="sans-serif" font-size="60" font-weight="bold"
+            fill="${svgEscape(color)}" text-anchor="middle" dominant-baseline="central">${svgEscape(text)}</text>
+    </svg>`;
+    outputBuffer = await sharpFn(Buffer.from(fallbackSvg)).png().toBuffer();
   }
 
-  const buffer = canvas.toBuffer("image/png");
-
-  // For JSON format: return the app proxy URL
+  // ─── Return response ───
   if (format === "json") {
-    const params = new URLSearchParams({
-      text,
-      style,
-      color,
-      format: "image",
-    });
+    const params = new URLSearchParams({ text, style, color, format: "image" });
     if (productId) params.set("product_id", productId);
     if (variantId) params.set("variant_id", variantId);
     if (handle) params.set("handle", handle);
     if (colorName) params.set("color_name", colorName);
 
-    const imageUrl = `/apps/api/preview?${params.toString()}`;
-
-    return new Response(JSON.stringify({ url: imageUrl }), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "public, max-age=3600",
-        "Access-Control-Allow-Origin": "*",
+    return new Response(
+      JSON.stringify({ url: `/apps/api/preview?${params.toString()}` }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, max-age=3600",
+          "Access-Control-Allow-Origin": "*",
+        },
       },
-    });
+    );
   }
 
-  // Default: return image directly
-  return new Response(buffer, {
+  return new Response(outputBuffer, {
     status: 200,
     headers: {
       "Content-Type": "image/png",
@@ -320,117 +404,3 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     },
   });
 };
-
-/**
- * Draw text within a specific print area rectangle.
- * Supports multiple font styles and traditional monogram layout.
- */
-function drawTextInArea(
-  ctx: any,
-  text: string,
-  style: string,
-  color: string,
-  x: number,
-  y: number,
-  w: number,
-  h: number
-) {
-  const centerX = x + w / 2;
-  const centerY = y + h / 2;
-
-  ctx.fillStyle = color;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  // Subtle shadow for visibility on any background
-  ctx.shadowColor = "rgba(0,0,0,0.12)";
-  ctx.shadowBlur = 2;
-  ctx.shadowOffsetX = 1;
-  ctx.shadowOffsetY = 1;
-
-  const fontFamily = FONT_MAP[style] || "MontserratBold";
-  const isScript = style === "script";
-
-  if (isScript) {
-    const fontSize = Math.min(w * 0.35, h * 0.7);
-    ctx.font = `${Math.round(fontSize)}px ${fontFamily}`;
-    ctx.fillText(text, centerX, centerY);
-  } else if (text.length === 3 && style !== "sans") {
-    // Traditional monogram layout: first-LAST(big)-middle
-    const baseSize = Math.min(w * 0.3, h * 0.7);
-    const bigSize = baseSize * 1.3;
-    const smallSize = baseSize * 0.75;
-    const spacing = w * 0.22;
-
-    ctx.font = `bold ${Math.round(bigSize)}px ${fontFamily}`;
-    ctx.fillText(text[1], centerX, centerY);
-
-    ctx.font = `bold ${Math.round(smallSize)}px ${fontFamily}`;
-    ctx.fillText(text[0], centerX - spacing, centerY);
-    ctx.fillText(text[2], centerX + spacing, centerY);
-  } else {
-    const fontSize = Math.min(w * 0.35, h * 0.7);
-    ctx.font = `bold ${Math.round(fontSize)}px ${fontFamily}`;
-    ctx.fillText(text, centerX, centerY);
-  }
-
-  // Reset shadow
-  ctx.shadowColor = "transparent";
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 0;
-}
-
-/**
- * Draw text centered on the canvas (fallback when no base image).
- */
-function drawTextCentered(
-  ctx: any,
-  text: string,
-  style: string,
-  color: string,
-  w: number,
-  h: number
-) {
-  drawTextInArea(ctx, text, style, color, w * 0.1, h * 0.15, w * 0.8, h * 0.5);
-}
-
-/**
- * Draw a simple hat silhouette as fallback background.
- */
-function drawHatSilhouette(ctx: any, w: number, h: number) {
-  ctx.fillStyle = "#f5f5f5";
-  ctx.fillRect(0, 0, w, h);
-
-  // Hat crown
-  ctx.fillStyle = "#e8e8e8";
-  ctx.beginPath();
-  ctx.moveTo(w * 0.15, h * 0.55);
-  ctx.quadraticCurveTo(w * 0.15, h * 0.12, w * 0.5, h * 0.1);
-  ctx.quadraticCurveTo(w * 0.85, h * 0.12, w * 0.85, h * 0.55);
-  ctx.lineTo(w * 0.15, h * 0.55);
-  ctx.fill();
-
-  // Brim
-  ctx.fillStyle = "#ddd";
-  ctx.beginPath();
-  ctx.moveTo(w * 0.05, h * 0.58);
-  ctx.quadraticCurveTo(w * 0.5, h * 0.5, w * 0.95, h * 0.58);
-  ctx.quadraticCurveTo(w * 0.5, h * 0.68, w * 0.05, h * 0.58);
-  ctx.fill();
-
-  // Outline
-  ctx.strokeStyle = "#ccc";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(w * 0.15, h * 0.55);
-  ctx.quadraticCurveTo(w * 0.15, h * 0.12, w * 0.5, h * 0.1);
-  ctx.quadraticCurveTo(w * 0.85, h * 0.12, w * 0.85, h * 0.55);
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(w * 0.05, h * 0.58);
-  ctx.quadraticCurveTo(w * 0.5, h * 0.5, w * 0.95, h * 0.58);
-  ctx.quadraticCurveTo(w * 0.5, h * 0.68, w * 0.05, h * 0.58);
-  ctx.stroke();
-}

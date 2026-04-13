@@ -462,37 +462,85 @@
     reader.readAsDataURL(file);
   }
 
-  // ─── Build preview image URL for cart ───
+  // ─── Build server-side preview image URL ───
+  // Generates a URL pointing to /apps/api/preview which composites
+  // the monogram text onto the real product mockup using sharp (server-side).
+  // This avoids CORS tainted-canvas issues that break client-side snapshots.
+
   function buildPreviewImageUrl() {
-    // Build URL from first text layer's state
-    var firstTextLayer = null;
+    // Find the first text layer with content
+    var firstText = null;
     var layerIds = Object.keys(layerStates);
     for (var i = 0; i < layerIds.length; i++) {
-      if (layerStates[layerIds[i]].type === 'text' && layerStates[layerIds[i]].text) {
-        firstTextLayer = layerStates[layerIds[i]];
+      var ls = layerStates[layerIds[i]];
+      if (ls && ls.type === 'text' && ls.text) {
+        firstText = ls;
         break;
       }
     }
-    if (!firstTextLayer) return '';
+    if (!firstText) return '';
 
-    // Detect the current color name for variant-aware preview
-    var colorName = detectSelectedColorName() || '';
+    // Detect the currently selected color variant
+    var selectedColor = detectSelectedColorName();
 
-    var url = '/apps/api/preview?text=' + encodeURIComponent(firstTextLayer.text)
-      + '&style=' + encodeURIComponent(firstTextLayer.font)
-      + '&color=' + encodeURIComponent(firstTextLayer.color)
-      + '&product_id=' + encodeURIComponent(productId)
-      + '&variant_id=' + encodeURIComponent(currentVariantId)
-      + '&handle=' + encodeURIComponent(productHandle)
-      + '&format=image';
-    if (colorName) {
-      url += '&color_name=' + encodeURIComponent(colorName);
-    }
-    if (templateConfig) {
-      url += '&template_id=' + encodeURIComponent(templateConfig.id);
-    }
-    return url;
+    var params = new URLSearchParams();
+    params.set('text', firstText.text);
+    params.set('style', firstText.font || 'block');
+    params.set('color', firstText.color || '#000000');
+    params.set('handle', '{{ product.handle }}');
+    params.set('product_id', '{{ product.id }}');
+    if (selectedColor) params.set('color_name', selectedColor);
+    params.set('format', 'image');
+
+    return '/apps/api/preview?' + params.toString();
   }
+
+  // ─── Cart drawer thumbnail swap ───
+  // After adding to cart, watch for the cart drawer to open and swap
+  // the thumbnail images for personalized items.
+  function setupCartDrawerObserver() {
+    // Watch for cart drawer opening (Dawn theme uses cart-drawer or cart-notification)
+    var observer = new MutationObserver(function() {
+      setTimeout(swapCartThumbnails, 500);
+    });
+
+    // Observe body for cart drawer appearance
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+  }
+
+  function swapCartThumbnails() {
+    // Fetch cart data to find items with our server-side preview URL
+    fetch('/cart.js')
+      .then(function(r) { return r.json(); })
+      .then(function(cart) {
+        if (!cart.items) return;
+
+        // Find cart drawer/notification images
+        var cartImages = document.querySelectorAll(
+          'cart-drawer img, cart-notification img, .cart-drawer img, ' +
+          '.cart-notification img, #cart-drawer img, .drawer img, ' +
+          '.cart-item img, .cart__image, [data-cart-item] img, ' +
+          'cart-drawer-items img, .cart-drawer__item img'
+        );
+
+        cart.items.forEach(function(item, idx) {
+          if (!item.properties || !item.properties._preview_image) return;
+
+          // Try to match by position (items render in same order)
+          if (cartImages[idx]) {
+            cartImages[idx].src = item.properties._preview_image;
+            if (cartImages[idx].srcset) cartImages[idx].removeAttribute('srcset');
+            console.log('[Customizer] Swapped cart thumbnail for item', idx);
+          }
+        });
+      })
+      .catch(function(e) {
+        console.warn('[Customizer] Could not swap cart thumbnails:', e);
+      });
+  }
+
+  // Start observing cart drawer
+  setupCartDrawerObserver();
 
   // ─── Monkey-patch fetch for cart/add.js ───
   var originalFetch = window.fetch;
@@ -543,7 +591,7 @@
               body.append('properties[_thread_color]', firstText.color);
             }
 
-            // Hidden preview URL (for cart thumbnail swap via JS)
+            // Set server-side preview image URL for cart thumbnail
             var previewUrl = buildPreviewImageUrl();
             if (previewUrl) {
               body.append('properties[_preview_image]', previewUrl);
