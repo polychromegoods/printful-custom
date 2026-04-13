@@ -9,7 +9,7 @@ embedded = true
 redirect_urls = [ "https://localhost/auth/callback" ]
 
 [access_scopes]
-scopes = "write_orders,read_orders,read_products"
+scopes = "write_orders,read_orders,read_products,write_files,read_files"
 
 [webhooks]
 api_version = "2026-04"

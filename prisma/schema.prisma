@@ -64,3 +64,53 @@ model PersonalizationOrder {
   @@index([shopifyOrderId])
   @@index([status])
 }
+
+// Product Base: links a Shopify product to personalization settings
+// Includes print area position (as % of image) for overlay placement
+model ProductBase {
+  id                String   @id @default(cuid())
+  shop              String
+  shopifyProductId  String   // e.g. "gid://shopify/Product/123456"
+  productTitle      String   // cached product title for display
+  productHandle     String?  // cached product handle
+
+  // Print area position as percentage of image dimensions (0-100)
+  printAreaX        Float    @default(25)   // left edge %
+  printAreaY        Float    @default(15)   // top edge %
+  printAreaWidth    Float    @default(50)   // width %
+  printAreaHeight   Float    @default(35)   // height %
+
+  // Default font options
+  enableScript      Boolean  @default(true)
+  enableBlock       Boolean  @default(true)
+
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  images            ProductBaseImage[]
+
+  @@unique([shop, shopifyProductId])
+  @@index([shop])
+}
+
+// Product Base Image: a blank mockup photo for a specific variant
+// Each color variant gets its own blank mockup image
+model ProductBaseImage {
+  id                String   @id @default(cuid())
+  productBaseId     String
+  shopifyVariantId  String?  // null = default/fallback image
+  variantTitle      String?  // e.g. "White", "Navy", "Black" (cached)
+  imageUrl          String   // URL to the blank mockup image (Shopify Files CDN)
+  sortOrder         Int      @default(0)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  productBase       ProductBase @relation(fields: [productBaseId], references: [id], onDelete: Cascade)
+
+  @@unique([productBaseId, shopifyVariantId])
+  @@index([productBaseId])
+}

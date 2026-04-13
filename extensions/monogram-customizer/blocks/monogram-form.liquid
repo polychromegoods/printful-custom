@@ -4,12 +4,12 @@
   - Text input (1-3 characters)
   - Font style selector (script / block)
   - Thread color picker (Printful's 15 embroidery colors)
-  - Live preview overlaid on the product image
+  - Live preview overlaid on the product image using real product base images
+  - Variant-aware: swaps base image when customer changes color variant
   
-  Strategy: Instead of intercepting the form submit (which Dawn's web component
-  prevents), we monkey-patch window.fetch to intercept any POST to /cart/add.js
-  and inject our monogram properties into the request body. This works regardless
-  of how the theme handles add-to-cart (form submit, AJAX, web component, etc.)
+  The block fetches product base configuration from the app's API,
+  which includes the base mockup image URL and print area position
+  configured by the merchant in the admin UI.
 {% endcomment %}
 
 <style>
@@ -232,63 +232,164 @@
   (function() {
     'use strict';
 
-    const textInput = document.getElementById('monogram-text');
-    const charCount = document.getElementById('char-count');
-    const errorEl = document.getElementById('monogram-error');
-    const colorPicker = document.getElementById('color-picker');
-    const colorNameEl = document.getElementById('color-name');
+    var textInput = document.getElementById('monogram-text');
+    var charCount = document.getElementById('char-count');
+    var errorEl = document.getElementById('monogram-error');
+    var colorPicker = document.getElementById('color-picker');
+    var colorNameEl = document.getElementById('color-name');
 
-    let currentStyle = 'script';
-    let currentColor = '#000000';
-    let currentText = '';
-    let overlayCanvas = null;
-    let overlayCtx = null;
-    let productImageEl = null;
+    var currentStyle = 'script';
+    var currentColor = '#000000';
+    var currentText = '';
+    var overlayCanvas = null;
+    var overlayCtx = null;
+    var productImageEl = null;
+
+    // Product base config from API
+    var productBaseConfig = null;
+    var originalImageSrc = null; // Store original product image src
+
+    // Get product and variant IDs from the page
+    var productId = '{{ product.id }}';
+    var currentVariantId = '{{ product.selected_or_first_available_variant.id }}';
+
+    // ─── Fetch product base config from the app proxy ───
+    function fetchProductBaseConfig(variantId) {
+      var apiUrl = '/apps/api/product-base?product_id=' + productId;
+      if (variantId) {
+        apiUrl += '&variant_id=' + variantId;
+      }
+
+      fetch(apiUrl)
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          console.log('[Monogram] Product base config:', data);
+          if (data.found && data.productBase) {
+            productBaseConfig = data.productBase;
+            // If we have a base image, swap the product image
+            if (productBaseConfig.currentImage && productImageEl) {
+              swapProductImage(productBaseConfig.currentImage);
+            }
+            renderPreview();
+          }
+        })
+        .catch(function(err) {
+          console.warn('[Monogram] Could not fetch product base config:', err);
+        });
+    }
+
+    // ─── Swap the main product image with the base mockup ───
+    function swapProductImage(imageUrl) {
+      if (!productImageEl) return;
+      // Store original src on first swap
+      if (!originalImageSrc) {
+        originalImageSrc = productImageEl.src;
+      }
+      productImageEl.src = imageUrl;
+      // Also update srcset if present
+      if (productImageEl.srcset) {
+        productImageEl.srcset = imageUrl;
+      }
+      console.log('[Monogram] Swapped product image to base:', imageUrl);
+    }
+
+    // ─── Listen for variant changes ───
+    // Dawn theme dispatches a 'variant:change' or updates the URL.
+    // We listen for multiple signals to catch variant changes.
+    function setupVariantListener() {
+      // Method 1: Listen for variant change events (Dawn 2.0+)
+      document.addEventListener('variant:change', function(e) {
+        var detail = e.detail || {};
+        var newVariantId = detail.variant ? detail.variant.id : null;
+        if (newVariantId) {
+          handleVariantChange(String(newVariantId));
+        }
+      });
+
+      // Method 2: Watch for URL changes (variant= parameter)
+      var lastUrl = window.location.href;
+      setInterval(function() {
+        if (window.location.href !== lastUrl) {
+          lastUrl = window.location.href;
+          var urlParams = new URLSearchParams(window.location.search);
+          var newVariantId = urlParams.get('variant');
+          if (newVariantId) {
+            handleVariantChange(newVariantId);
+          }
+        }
+      }, 500);
+
+      // Method 3: Watch for changes to variant radio/select inputs
+      document.querySelectorAll('input[name="id"], select[name="id"]').forEach(function(el) {
+        el.addEventListener('change', function() {
+          handleVariantChange(this.value);
+        });
+      });
+
+      // Method 4: Watch for fieldset/variant-radios changes (Dawn theme)
+      document.querySelectorAll('variant-radios, variant-selects').forEach(function(el) {
+        var observer = new MutationObserver(function() {
+          // Find the currently selected variant input
+          var selectedInput = el.querySelector('input[name="id"]:checked') || el.querySelector('select[name="id"]');
+          if (selectedInput) {
+            handleVariantChange(selectedInput.value);
+          }
+        });
+        observer.observe(el, { subtree: true, attributes: true, childList: true });
+      });
+    }
+
+    function handleVariantChange(newVariantId) {
+      if (newVariantId === currentVariantId) return;
+      currentVariantId = newVariantId;
+      console.log('[Monogram] Variant changed to:', newVariantId);
+
+      if (productBaseConfig && productBaseConfig.variantImages) {
+        // Check if we have a base image for this variant
+        var variantImage = productBaseConfig.variantImages[newVariantId];
+        if (variantImage) {
+          swapProductImage(variantImage);
+        } else if (productBaseConfig.defaultImage) {
+          swapProductImage(productBaseConfig.defaultImage);
+        }
+      }
+
+      renderPreview();
+    }
 
     // ─── Build the app proxy preview image URL ───
     function buildPreviewImageUrl() {
       if (!currentText) return '';
-      return '/apps/api/preview?text=' + encodeURIComponent(currentText)
+      var url = '/apps/api/preview?text=' + encodeURIComponent(currentText)
         + '&style=' + encodeURIComponent(currentStyle)
         + '&color=' + encodeURIComponent(currentColor)
+        + '&product_id=' + encodeURIComponent(productId)
+        + '&variant_id=' + encodeURIComponent(currentVariantId)
         + '&format=image';
+      return url;
     }
 
     // ─── MONKEY-PATCH window.fetch ───
-    // Dawn theme's product-form web component uses fetch() to POST to /cart/add.js.
-    // We intercept that call and inject our monogram properties into the request body.
-    // IMPORTANT: We must preserve ALL original fields (especially 'sections' which Dawn
-    // uses to render the cart drawer). If we drop 'sections', the cart drawer crashes.
-    const originalFetch = window.fetch;
+    var originalFetch = window.fetch;
     window.fetch = function(url, options) {
-      // Check if this is a cart/add.js call
       var urlStr = (typeof url === 'string') ? url : (url && url.url ? url.url : '');
       if (urlStr.indexOf('/cart/add') !== -1 && options && options.method && options.method.toUpperCase() === 'POST') {
-        // Only inject if there's monogram text
         if (currentText && currentText.length > 0) {
           try {
             var body = options.body;
-            var isFormData = body instanceof FormData;
-
-            if (isFormData) {
-              // Dawn sends FormData. We inject our properties as FormData entries.
-              // This preserves the 'sections' and 'sections_url' fields that Dawn needs.
+            if (body instanceof FormData) {
               body.append('properties[_monogram_text]', currentText);
               body.append('properties[_monogram_style]', currentStyle);
               body.append('properties[_thread_color]', currentColor);
               body.append('properties[Monogram Preview]', buildPreviewImageUrl());
-
               console.log('[Monogram] Injected properties into FormData cart/add.js');
-              // options.body is already the modified FormData reference
             } else if (typeof body === 'string') {
-              // JSON body — parse, inject, re-stringify
               var parsed = JSON.parse(body);
               if (!parsed.properties) parsed.properties = {};
               parsed.properties['_monogram_text'] = currentText;
               parsed.properties['_monogram_style'] = currentStyle;
               parsed.properties['_thread_color'] = currentColor;
               parsed.properties['Monogram Preview'] = buildPreviewImageUrl();
-
               console.log('[Monogram] Injected properties into JSON cart/add.js:', parsed.properties);
               options.body = JSON.stringify(parsed);
             }
@@ -384,6 +485,9 @@
         return;
       }
 
+      // Store original image source
+      originalImageSrc = productImageEl.src;
+
       // Make the image's parent position:relative so we can overlay
       var parent = productImageEl.parentElement;
       var parentPos = window.getComputedStyle(parent).position;
@@ -404,6 +508,12 @@
         setTimeout(positionOverlay, 100);
       });
       observer.observe(parent, { childList: true, subtree: true, attributes: true });
+
+      // Now fetch the product base config
+      fetchProductBaseConfig(currentVariantId);
+
+      // Setup variant change listener
+      setupVariantListener();
     }
 
     function positionOverlay() {
@@ -470,12 +580,26 @@
 
       if (!currentText) return;
 
-      // Position the monogram on the front of the hat
-      var centerX = w * 0.50;
-      var centerY = h * 0.42;
+      // Use print area from product base config if available
+      var printArea;
+      if (productBaseConfig && productBaseConfig.printArea) {
+        printArea = productBaseConfig.printArea;
+      } else {
+        // Default print area (centered on hat front)
+        printArea = { x: 25, y: 15, width: 50, height: 35 };
+      }
 
-      // Scale font size relative to image size
-      var baseSize = Math.min(w, h) * 0.12;
+      // Calculate print area in pixel coordinates
+      var paX = w * (printArea.x / 100);
+      var paY = h * (printArea.y / 100);
+      var paW = w * (printArea.width / 100);
+      var paH = h * (printArea.height / 100);
+
+      var centerX = paX + paW / 2;
+      var centerY = paY + paH / 2;
+
+      // Scale font size to fit within print area
+      var baseSize = Math.min(paW * 0.4, paH * 0.6);
 
       overlayCtx.fillStyle = currentColor;
       overlayCtx.textAlign = 'center';
@@ -488,7 +612,8 @@
       overlayCtx.shadowOffsetY = 1;
 
       if (currentStyle === 'script') {
-        overlayCtx.font = baseSize + 'px "Great Vibes", cursive';
+        var scriptSize = Math.min(paW * 0.5, paH * 0.7);
+        overlayCtx.font = scriptSize + 'px "Great Vibes", cursive';
         overlayCtx.fillText(currentText, centerX, centerY);
       } else {
         if (currentText.length === 3) {
@@ -496,7 +621,7 @@
           overlayCtx.fillText(currentText[1], centerX, centerY);
 
           var sideSize = baseSize * 0.8;
-          var spacing = baseSize * 1.2;
+          var spacing = paW * 0.25;
           overlayCtx.font = 'bold ' + sideSize + 'px "Montserrat", sans-serif';
           overlayCtx.fillText(currentText[0], centerX - spacing, centerY);
           overlayCtx.fillText(currentText[2], centerX + spacing, centerY);
