@@ -1,0 +1,12 @@
+api_version = "2026-04"
+type = "theme"
+uid = "00d1fac2-016a-5e68-d901-e56c45d4ed850ceb576e"
+
+[[extensions]]
+name = "Monogram Customizer"
+handle = "monogram-customizer"
+type = "theme"
+
+  [[extensions.targeting]]
+  module = "./blocks/monogram-form.liquid"
+  target = "section"
