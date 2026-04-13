@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { json, unstable_parseMultipartFormData, unstable_createMemoryUploadHandler } from "@remix-run/node";
+import { json } from "@remix-run/node";
 import {
   useLoaderData,
   useSubmit,
@@ -24,918 +24,1013 @@ import {
   Banner,
   Box,
   Divider,
+  Select,
+  ChoiceList,
+  Checkbox,
   RangeSlider,
-  DropZone,
+  Tag,
+  InlineGrid,
   Spinner,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { useState, useCallback, useEffect } from "react";
+import {
+  PRODUCT_BASES,
+  EMBROIDERY_THREAD_COLORS,
+  AVAILABLE_FONTS,
+  getPlacementsForTechnique,
+} from "../config/product-bases";
+import type { ProductBase, TechniqueKey, PrintAreaSpec } from "../config/product-bases";
 
-// ─── Loader: fetch all product bases for this shop ───
+// ─── Loader ──────────────────────────────────────────────────────────────────
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  const productBases = await db.productBase.findMany({
+  const templates = await db.productTemplate.findMany({
     where: { shop: session.shop },
-    include: { images: { orderBy: { sortOrder: "asc" } } },
+    include: {
+      layers: { orderBy: { sortOrder: "asc" } },
+      mockupImages: { orderBy: { sortOrder: "asc" } },
+    },
     orderBy: { createdAt: "desc" },
   });
 
-  return json({ productBases, shop: session.shop });
+  return json({
+    templates,
+    shop: session.shop,
+    productBases: PRODUCT_BASES.map((pb) => ({
+      slug: pb.slug,
+      name: pb.name,
+      brand: pb.brand,
+      model: pb.model,
+      category: pb.category,
+      techniques: pb.techniques,
+      variants: pb.variants.map((v) => ({ color: v.color, colorHex: v.colorHex })),
+    })),
+    threadColors: EMBROIDERY_THREAD_COLORS,
+    fonts: AVAILABLE_FONTS,
+  });
 };
 
-// ─── Action: handle create, update, delete, upload ───
+// ─── Action ──────────────────────────────────────────────────────────────────
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session, admin } = await authenticate.admin(request);
-
-  // Check if this is a multipart upload
-  const contentType = request.headers.get("content-type") || "";
-  let formData: FormData;
-
-  if (contentType.includes("multipart/form-data")) {
-    const uploadHandler = unstable_createMemoryUploadHandler({
-      maxPartSize: 20_000_000, // 20MB
-    });
-    formData = await unstable_parseMultipartFormData(request, uploadHandler);
-  } else {
-    formData = await request.formData();
-  }
-
+  const { session } = await authenticate.admin(request);
+  const formData = await request.formData();
   const intent = formData.get("intent") as string;
 
   try {
-    // ── Create / Update product base ──
-    if (intent === "upsert") {
+    if (intent === "create_template") {
+      const productBaseSlug = formData.get("productBaseSlug") as string;
       const shopifyProductId = formData.get("shopifyProductId") as string;
       const productTitle = formData.get("productTitle") as string;
       const productHandle = formData.get("productHandle") as string;
+      const technique = formData.get("technique") as string;
+      const placementKey = formData.get("placementKey") as string;
+      const enabledFonts = formData.get("enabledFonts") as string;
+      const enabledThreadColors = formData.get("enabledThreadColors") as string;
+      const enabledVariantColors = formData.get("enabledVariantColors") as string;
       const printAreaX = parseFloat(formData.get("printAreaX") as string) || 25;
       const printAreaY = parseFloat(formData.get("printAreaY") as string) || 15;
       const printAreaWidth = parseFloat(formData.get("printAreaWidth") as string) || 50;
       const printAreaHeight = parseFloat(formData.get("printAreaHeight") as string) || 35;
 
-      const productBase = await db.productBase.upsert({
-        where: {
-          shop_shopifyProductId: {
-            shop: session.shop,
-            shopifyProductId,
-          },
-        },
-        update: {
-          productTitle,
-          productHandle,
-          printAreaX,
-          printAreaY,
-          printAreaWidth,
-          printAreaHeight,
-          updatedAt: new Date(),
-        },
-        create: {
+      // Parse layers
+      const layersJson = formData.get("layers") as string;
+      const layers = layersJson ? JSON.parse(layersJson) : [];
+
+      const template = await db.productTemplate.create({
+        data: {
           shop: session.shop,
           shopifyProductId,
           productTitle,
-          productHandle: productHandle || undefined,
+          productHandle,
+          productBaseSlug,
+          technique,
+          placementKey,
+          enabledFonts,
+          enabledThreadColors,
+          enabledVariantColors,
           printAreaX,
           printAreaY,
           printAreaWidth,
           printAreaHeight,
+          layers: {
+            create: layers.map((layer: any, index: number) => ({
+              layerType: layer.layerType,
+              label: layer.label,
+              customerEditable: layer.customerEditable ?? true,
+              positionX: layer.positionX ?? 10,
+              positionY: layer.positionY ?? 10,
+              positionWidth: layer.positionWidth ?? 80,
+              positionHeight: layer.positionHeight ?? 80,
+              sortOrder: index,
+              maxChars: layer.maxChars ?? null,
+              placeholder: layer.placeholder ?? null,
+              defaultFont: layer.defaultFont ?? "script",
+              defaultColor: layer.defaultColor ?? "#000000",
+              fixedImageUrl: layer.fixedImageUrl ?? null,
+            })),
+          },
         },
       });
 
-      return json({ success: true, productBase, message: "Product base saved." });
+      return json({ success: true, templateId: template.id });
     }
 
-    // ── Upload image (handles entire flow server-side) ──
-    if (intent === "uploadImage") {
-      const productBaseId = formData.get("productBaseId") as string;
-      const shopifyVariantId = formData.get("shopifyVariantId") as string | null;
-      const variantTitle = formData.get("variantTitle") as string | null;
-      const file = formData.get("file") as File;
+    if (intent === "delete_template") {
+      const templateId = formData.get("templateId") as string;
+      await db.productTemplate.delete({ where: { id: templateId } });
+      return json({ success: true });
+    }
 
-      if (!file || !(file instanceof File)) {
-        return json({ success: false, error: "No file provided" });
-      }
+    if (intent === "update_print_area") {
+      const templateId = formData.get("templateId") as string;
+      const printAreaX = parseFloat(formData.get("printAreaX") as string);
+      const printAreaY = parseFloat(formData.get("printAreaY") as string);
+      const printAreaWidth = parseFloat(formData.get("printAreaWidth") as string);
+      const printAreaHeight = parseFloat(formData.get("printAreaHeight") as string);
 
-      // Step 1: Create staged upload target
-      const stagedResponse = await admin.graphql(
-        `#graphql
-        mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
-          stagedUploadsCreate(input: $input) {
-            stagedTargets {
-              url
-              resourceUrl
-              parameters {
-                name
-                value
-              }
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }`,
-        {
-          variables: {
-            input: [
-              {
-                filename: file.name,
-                mimeType: file.type || "image/png",
-                resource: "FILE",
-                fileSize: file.size.toString(),
-                httpMethod: "POST",
-              },
-            ],
-          },
-        }
-      );
-
-      const stagedJson = await stagedResponse.json();
-      const targets = stagedJson.data?.stagedUploadsCreate?.stagedTargets;
-      const stagedErrors = stagedJson.data?.stagedUploadsCreate?.userErrors;
-
-      if (stagedErrors && stagedErrors.length > 0) {
-        return json({ success: false, error: `Staged upload error: ${stagedErrors[0].message}` });
-      }
-
-      const target = targets?.[0];
-      if (!target) {
-        return json({ success: false, error: "No staged upload target returned" });
-      }
-
-      // Step 2: Upload file to the staged URL
-      const uploadFormData = new FormData();
-      target.parameters.forEach((param: { name: string; value: string }) => {
-        uploadFormData.append(param.name, param.value);
+      await db.productTemplate.update({
+        where: { id: templateId },
+        data: { printAreaX, printAreaY, printAreaWidth, printAreaHeight },
       });
 
-      // Convert the File to a Blob for server-side fetch
-      const fileBuffer = Buffer.from(await file.arrayBuffer());
-      const blob = new Blob([fileBuffer], { type: file.type || "image/png" });
-      uploadFormData.append("file", blob, file.name);
+      return json({ success: true });
+    }
 
-      const uploadResponse = await fetch(target.url, {
-        method: "POST",
-        body: uploadFormData,
-      });
+    if (intent === "add_mockup") {
+      const templateId = formData.get("templateId") as string;
+      const variantColor = formData.get("variantColor") as string;
+      const variantColorHex = formData.get("variantColorHex") as string;
+      const imageUrl = formData.get("imageUrl") as string;
+      const isDefault = formData.get("isDefault") === "true";
 
-      if (!uploadResponse.ok) {
-        return json({ success: false, error: `Upload to S3 failed: ${uploadResponse.statusText}` });
-      }
-
-      // Step 3: Create file in Shopify
-      const createResponse = await admin.graphql(
-        `#graphql
-        mutation fileCreate($files: [FileCreateInput!]!) {
-          fileCreate(files: $files) {
-            files {
-              id
-              alt
-              ... on MediaImage {
-                image {
-                  url
-                }
-              }
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }`,
-        {
-          variables: {
-            files: [
-              {
-                originalSource: target.resourceUrl,
-                alt: file.name,
-                contentType: "IMAGE",
-              },
-            ],
-          },
-        }
-      );
-
-      const createJson = await createResponse.json();
-      const files = createJson.data?.fileCreate?.files;
-      const createErrors = createJson.data?.fileCreate?.userErrors;
-
-      if (createErrors && createErrors.length > 0) {
-        return json({ success: false, error: `File create error: ${createErrors[0].message}` });
-      }
-
-      const fileId = files?.[0]?.id;
-      let imageUrl = files?.[0]?.image?.url;
-
-      // Step 4: Poll for the image URL if not immediately available
-      if (!imageUrl && fileId) {
-        for (let i = 0; i < 15; i++) {
-          await new Promise((r) => setTimeout(r, 2000));
-
-          const pollResponse = await admin.graphql(
-            `#graphql
-            query getFile($id: ID!) {
-              node(id: $id) {
-                ... on MediaImage {
-                  id
-                  image {
-                    url
-                  }
-                  fileStatus
-                }
-              }
-            }`,
-            { variables: { id: fileId } }
-          );
-
-          const pollJson = await pollResponse.json();
-          const node = pollJson.data?.node;
-
-          if (node?.image?.url) {
-            imageUrl = node.image.url;
-            break;
-          }
-          if (node?.fileStatus === "FAILED") {
-            return json({ success: false, error: "Shopify file processing failed" });
-          }
-        }
-      }
-
-      if (!imageUrl) {
-        return json({ success: false, error: "Timed out waiting for image URL from Shopify" });
-      }
-
-      // Step 5: Save the image record in our database
-      const image = await db.productBaseImage.create({
+      await db.mockupImage.create({
         data: {
-          productBaseId,
-          shopifyVariantId: shopifyVariantId || null,
-          variantTitle: variantTitle || "Default",
+          templateId,
+          variantColor,
+          variantColorHex,
           imageUrl,
+          isDefault,
         },
       });
 
-      // Reload the product base to return updated data
-      const updatedBase = await db.productBase.findUnique({
-        where: { id: productBaseId },
-        include: { images: { orderBy: { sortOrder: "asc" } } },
-      });
-
-      return json({ success: true, image, updatedBase, message: "Image uploaded successfully!" });
+      return json({ success: true });
     }
 
-    // ── Remove variant image ──
-    if (intent === "removeImage") {
-      const imageId = formData.get("imageId") as string;
-      await db.productBaseImage.delete({ where: { id: imageId } });
-      return json({ success: true, message: "Image removed." });
+    if (intent === "delete_mockup") {
+      const mockupId = formData.get("mockupId") as string;
+      await db.mockupImage.delete({ where: { id: mockupId } });
+      return json({ success: true });
     }
 
-    // ── Delete product base ──
-    if (intent === "delete") {
-      const productBaseId = formData.get("productBaseId") as string;
-      await db.productBase.delete({ where: { id: productBaseId } });
-      return json({ success: true, message: "Product base deleted." });
+    if (intent === "toggle_active") {
+      const templateId = formData.get("templateId") as string;
+      const template = await db.productTemplate.findUnique({ where: { id: templateId } });
+      if (template) {
+        await db.productTemplate.update({
+          where: { id: templateId },
+          data: { isActive: !template.isActive },
+        });
+      }
+      return json({ success: true });
     }
 
-    // ── Fetch products for picker ──
-    if (intent === "fetchProducts") {
-      const response = await admin.graphql(
-        `#graphql
-        query getProducts {
-          products(first: 50, sortKey: TITLE) {
-            edges {
-              node {
-                id
-                title
-                handle
-                featuredImage {
-                  url
-                }
-                variants(first: 100) {
-                  edges {
-                    node {
-                      id
-                      title
-                      selectedOptions {
-                        name
-                        value
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }`
-      );
-
-      const responseJson = await response.json();
-      const products = responseJson.data?.products?.edges?.map(
-        (e: any) => e.node
-      );
-
-      return json({ success: true, products });
-    }
-
-    return json({ success: false, error: "Unknown intent" });
+    return json({ error: "Unknown intent" }, { status: 400 });
   } catch (error: any) {
-    console.error("Product base action error:", error);
-    return json({ success: false, error: error.message });
+    console.error("Action error:", error);
+    return json({ error: error.message }, { status: 500 });
   }
 };
 
-// ─── Component ───
-export default function ProductBases() {
-  const { productBases: initialBases } = useLoaderData<typeof loader>();
+// ─── Component ───────────────────────────────────────────────────────────────
+export default function ProductBasesPage() {
+  const { templates, productBases, threadColors, fonts } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
 
-  // Keep a local copy of product bases that updates from action data
-  const [productBases, setProductBases] = useState(initialBases);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showImageModal, setShowImageModal] = useState(false);
-  const [selectedBase, setSelectedBase] = useState<any>(null);
-  const [products, setProducts] = useState<any[]>([]);
-  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  // Wizard state
+  const [showWizard, setShowWizard] = useState(false);
+  const [wizardStep, setWizardStep] = useState(1);
 
-  // Print area settings
+  // Step 1: Select product base
+  const [selectedBaseSlug, setSelectedBaseSlug] = useState("");
+
+  // Step 2: Choose technique & placement
+  const [selectedTechnique, setSelectedTechnique] = useState("");
+  const [selectedPlacement, setSelectedPlacement] = useState("");
+
+  // Step 3: Configure layers
+  const [layers, setLayers] = useState<any[]>([]);
+
+  // Step 4: Fonts, colors, variants
+  const [enabledFontKeys, setEnabledFontKeys] = useState<string[]>(["script", "block"]);
+  const [enabledThreadColorHexes, setEnabledThreadColorHexes] = useState<string[]>([]);
+  const [enabledVariantColors, setEnabledVariantColors] = useState<string[]>([]);
+
+  // Step 5: Print area position
   const [printAreaX, setPrintAreaX] = useState(25);
   const [printAreaY, setPrintAreaY] = useState(15);
   const [printAreaWidth, setPrintAreaWidth] = useState(50);
   const [printAreaHeight, setPrintAreaHeight] = useState(35);
 
-  // Image upload
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [selectedVariantId, setSelectedVariantId] = useState("");
-  const [selectedVariantTitle, setSelectedVariantTitle] = useState("Default");
+  // Step 6: Shopify product link
+  const [shopifyProductId, setShopifyProductId] = useState("");
+  const [productTitle, setProductTitle] = useState("");
+  const [productHandle, setProductHandle] = useState("");
 
-  // Sync product bases from loader
-  useEffect(() => {
-    setProductBases(initialBases);
-  }, [initialBases]);
+  // Mockup modal
+  const [showMockupModal, setShowMockupModal] = useState(false);
+  const [mockupTemplateId, setMockupTemplateId] = useState("");
+  const [mockupVariantColor, setMockupVariantColor] = useState("");
+  const [mockupVariantColorHex, setMockupVariantColorHex] = useState("");
+  const [mockupImageUrl, setMockupImageUrl] = useState("");
 
-  // Update from action data
-  useEffect(() => {
-    if (actionData && "products" in actionData && actionData.products) {
-      setProducts(actionData.products as any[]);
-    }
-    if (actionData && "updatedBase" in actionData && actionData.updatedBase) {
-      // Update the local product bases list with the updated base
-      setProductBases((prev: any[]) =>
-        prev.map((b: any) =>
-          b.id === (actionData as any).updatedBase.id ? (actionData as any).updatedBase : b
-        )
-      );
-      // Also update selectedBase if it's the same
-      if (selectedBase?.id === (actionData as any).updatedBase.id) {
-        setSelectedBase((actionData as any).updatedBase);
-      }
-      setUploadingImage(false);
-    }
-    if (actionData && "message" in actionData && actionData.message) {
-      // Upload completed
-      setUploadingImage(false);
-    }
-    if (actionData && "error" in actionData && actionData.error) {
-      setUploadingImage(false);
-    }
-  }, [actionData, selectedBase]);
+  // Derived state
+  const selectedBase = productBases.find((pb) => pb.slug === selectedBaseSlug);
+  const availableTechniques = selectedBase?.techniques || [];
+  const selectedBaseFromRegistry = PRODUCT_BASES.find((pb) => pb.slug === selectedBaseSlug);
+  const availablePlacements = selectedBaseFromRegistry && selectedTechnique
+    ? getPlacementsForTechnique(selectedBaseFromRegistry, selectedTechnique as TechniqueKey)
+    : [];
+  const selectedPlacementSpec = availablePlacements.find((p) => p.placementKey === selectedPlacement);
 
-  // Fetch products when create modal opens
-  const handleOpenCreate = useCallback(() => {
-    setSelectedBase(null);
-    setShowCreateModal(true);
-    const formData = new FormData();
-    formData.set("intent", "fetchProducts");
-    submit(formData, { method: "post" });
-  }, [submit]);
-
-  // Handle product selection
-  const handleSelectProduct = useCallback((product: any) => {
-    setSelectedProduct(product);
+  // Reset wizard
+  const resetWizard = useCallback(() => {
+    setWizardStep(1);
+    setSelectedBaseSlug("");
+    setSelectedTechnique("");
+    setSelectedPlacement("");
+    setLayers([]);
+    setEnabledFontKeys(["script", "block"]);
+    setEnabledThreadColorHexes([]);
+    setEnabledVariantColors([]);
     setPrintAreaX(25);
     setPrintAreaY(15);
     setPrintAreaWidth(50);
     setPrintAreaHeight(35);
+    setShopifyProductId("");
+    setProductTitle("");
+    setProductHandle("");
   }, []);
 
-  // Save product base
-  const handleSaveBase = useCallback(() => {
-    if (!selectedProduct) return;
+  // When base changes, set defaults
+  useEffect(() => {
+    if (selectedPlacementSpec) {
+      setPrintAreaX(selectedPlacementSpec.mockupPosition.x);
+      setPrintAreaY(selectedPlacementSpec.mockupPosition.y);
+      setPrintAreaWidth(selectedPlacementSpec.mockupPosition.width);
+      setPrintAreaHeight(selectedPlacementSpec.mockupPosition.height);
+    }
+  }, [selectedPlacementSpec]);
+
+  // When technique changes, add default layer
+  useEffect(() => {
+    if (selectedTechnique && layers.length === 0) {
+      if (selectedTechnique === "embroidery") {
+        setLayers([{
+          layerType: "text",
+          label: "Monogram Text",
+          customerEditable: true,
+          maxChars: selectedBase?.category === "hat" ? 3 : 20,
+          placeholder: selectedBase?.category === "hat" ? "ABC" : "Your Text",
+          defaultFont: "script",
+          defaultColor: "#000000",
+          positionX: 10, positionY: 10, positionWidth: 80, positionHeight: 80,
+        }]);
+      } else {
+        setLayers([{
+          layerType: "text",
+          label: "Custom Text",
+          customerEditable: true,
+          maxChars: 30,
+          placeholder: "Your Text Here",
+          defaultFont: "block",
+          defaultColor: "#000000",
+          positionX: 10, positionY: 20, positionWidth: 80, positionHeight: 60,
+        }]);
+      }
+    }
+  }, [selectedTechnique]);
+
+  // Close wizard on success
+  useEffect(() => {
+    if (actionData && 'success' in actionData && actionData.success && showWizard) {
+      setShowWizard(false);
+      resetWizard();
+    }
+  }, [actionData]);
+
+  const handleCreateTemplate = useCallback(() => {
     const formData = new FormData();
-    formData.set("intent", "upsert");
-    formData.set("shopifyProductId", selectedProduct.id);
-    formData.set("productTitle", selectedProduct.title);
-    formData.set("productHandle", selectedProduct.handle || "");
-    formData.set("printAreaX", printAreaX.toString());
-    formData.set("printAreaY", printAreaY.toString());
-    formData.set("printAreaWidth", printAreaWidth.toString());
-    formData.set("printAreaHeight", printAreaHeight.toString());
+    formData.set("intent", "create_template");
+    formData.set("productBaseSlug", selectedBaseSlug);
+    formData.set("shopifyProductId", shopifyProductId);
+    formData.set("productTitle", productTitle);
+    formData.set("productHandle", productHandle);
+    formData.set("technique", selectedTechnique);
+    formData.set("placementKey", selectedPlacement);
+    formData.set("enabledFonts", JSON.stringify(enabledFontKeys));
+    formData.set("enabledThreadColors", JSON.stringify(enabledThreadColorHexes));
+    formData.set("enabledVariantColors", JSON.stringify(enabledVariantColors));
+    formData.set("printAreaX", String(printAreaX));
+    formData.set("printAreaY", String(printAreaY));
+    formData.set("printAreaWidth", String(printAreaWidth));
+    formData.set("printAreaHeight", String(printAreaHeight));
+    formData.set("layers", JSON.stringify(layers));
     submit(formData, { method: "post" });
-    setShowCreateModal(false);
-    setSelectedProduct(null);
-  }, [selectedProduct, printAreaX, printAreaY, printAreaWidth, printAreaHeight, submit]);
+  }, [selectedBaseSlug, shopifyProductId, productTitle, productHandle, selectedTechnique, selectedPlacement, enabledFontKeys, enabledThreadColorHexes, enabledVariantColors, printAreaX, printAreaY, printAreaWidth, printAreaHeight, layers, submit]);
 
-  // Open image management for a product base
-  const handleManageImages = useCallback((base: any) => {
-    setSelectedBase(base);
-    setShowImageModal(true);
-    setSelectedVariantId("");
-    setSelectedVariantTitle("Default");
-  }, []);
+  const handleDeleteTemplate = useCallback((templateId: string) => {
+    if (!confirm("Delete this product template? This cannot be undone.")) return;
+    const formData = new FormData();
+    formData.set("intent", "delete_template");
+    formData.set("templateId", templateId);
+    submit(formData, { method: "post" });
+  }, [submit]);
 
-  // Delete a product base
-  const handleDeleteBase = useCallback(
-    (baseId: string) => {
-      if (!confirm("Delete this product base and all its images?")) return;
-      const formData = new FormData();
-      formData.set("intent", "delete");
-      formData.set("productBaseId", baseId);
-      submit(formData, { method: "post" });
-    },
-    [submit]
+  const handleToggleActive = useCallback((templateId: string) => {
+    const formData = new FormData();
+    formData.set("intent", "toggle_active");
+    formData.set("templateId", templateId);
+    submit(formData, { method: "post" });
+  }, [submit]);
+
+  const handleAddMockup = useCallback(() => {
+    const formData = new FormData();
+    formData.set("intent", "add_mockup");
+    formData.set("templateId", mockupTemplateId);
+    formData.set("variantColor", mockupVariantColor);
+    formData.set("variantColorHex", mockupVariantColorHex);
+    formData.set("imageUrl", mockupImageUrl);
+    formData.set("isDefault", mockupVariantColor === "Default" ? "true" : "false");
+    submit(formData, { method: "post" });
+    setShowMockupModal(false);
+    setMockupImageUrl("");
+    setMockupVariantColor("");
+  }, [mockupTemplateId, mockupVariantColor, mockupVariantColorHex, mockupImageUrl, submit]);
+
+  const handleDeleteMockup = useCallback((mockupId: string) => {
+    const formData = new FormData();
+    formData.set("intent", "delete_mockup");
+    formData.set("mockupId", mockupId);
+    submit(formData, { method: "post" });
+  }, [submit]);
+
+  // ─── Render Wizard Steps ────────────────────────────────────────────────
+
+  const renderStep1 = () => (
+    <BlockStack gap="400">
+      <Text as="h2" variant="headingMd">Step 1: Select Product Base</Text>
+      <Text as="p" variant="bodyMd" tone="subdued">
+        Choose the Printful product this template is for. Each base has pre-configured
+        print specs, placements, and variant colors.
+      </Text>
+      <ChoiceList
+        title="Product Base"
+        choices={productBases.map((pb) => ({
+          label: `${pb.name} (${pb.brand} ${pb.model}) — ${pb.category}`,
+          value: pb.slug,
+          helpText: `${pb.variants.length} colors, ${pb.techniques.map((t) => t.displayName).join(", ")}`,
+        }))}
+        selected={selectedBaseSlug ? [selectedBaseSlug] : []}
+        onChange={(val) => {
+          setSelectedBaseSlug(val[0]);
+          setSelectedTechnique("");
+          setSelectedPlacement("");
+          setLayers([]);
+        }}
+      />
+    </BlockStack>
   );
 
-  // Handle image file drop/upload — now sends file directly to server action
-  const handleDropZoneDrop = useCallback(
-    (_dropFiles: File[], acceptedFiles: File[]) => {
-      if (!selectedBase || acceptedFiles.length === 0) return;
-      setUploadingImage(true);
-
-      const file = acceptedFiles[0];
-      const formData = new FormData();
-      formData.set("intent", "uploadImage");
-      formData.set("productBaseId", selectedBase.id);
-      formData.set("shopifyVariantId", selectedVariantId);
-      formData.set("variantTitle", selectedVariantTitle || "Default");
-      formData.set("file", file);
-
-      submit(formData, {
-        method: "post",
-        encType: "multipart/form-data",
-      });
-    },
-    [selectedBase, selectedVariantId, selectedVariantTitle, submit]
+  const renderStep2 = () => (
+    <BlockStack gap="400">
+      <Text as="h2" variant="headingMd">Step 2: Choose Technique & Placement</Text>
+      <Select
+        label="Technique"
+        options={[
+          { label: "Select technique...", value: "" },
+          ...availableTechniques.map((t) => ({
+            label: `${t.displayName}${t.isDefault ? " (default)" : ""}`,
+            value: t.key,
+          })),
+        ]}
+        value={selectedTechnique}
+        onChange={(val) => {
+          setSelectedTechnique(val);
+          setSelectedPlacement("");
+          setLayers([]);
+        }}
+      />
+      {selectedTechnique && (
+        <Select
+          label="Placement"
+          options={[
+            { label: "Select placement...", value: "" },
+            ...availablePlacements.map((p) => ({
+              label: `${p.displayName} (${p.maxAreaInches.width}" × ${p.maxAreaInches.height}" — ${p.fileSizePx.width}×${p.fileSizePx.height}px)`,
+              value: p.placementKey,
+            })),
+          ]}
+          value={selectedPlacement}
+          onChange={setSelectedPlacement}
+        />
+      )}
+      {selectedPlacementSpec && (
+        <Banner tone="info">
+          <Text as="p" variant="bodyMd">
+            Print file: {selectedPlacementSpec.fileSizePx.width} × {selectedPlacementSpec.fileSizePx.height}px
+            at {selectedPlacementSpec.dpi} DPI
+            ({selectedPlacementSpec.maxAreaInches.width}" × {selectedPlacementSpec.maxAreaInches.height}")
+            {selectedPlacementSpec.supports3dPuff && " — 3D Puff available"}
+          </Text>
+        </Banner>
+      )}
+    </BlockStack>
   );
 
-  // Remove an image
-  const handleRemoveImage = useCallback(
-    (imageId: string) => {
-      const formData = new FormData();
-      formData.set("intent", "removeImage");
-      formData.set("imageId", imageId);
-      submit(formData, { method: "post" });
-    },
-    [submit]
+  const renderStep3 = () => (
+    <BlockStack gap="400">
+      <Text as="h2" variant="headingMd">Step 3: Configure Layers</Text>
+      <Text as="p" variant="bodyMd" tone="subdued">
+        Layers are the customizable elements. They are composited in order to create the final print file.
+      </Text>
+      {layers.map((layer, index) => (
+        <Card key={index}>
+          <BlockStack gap="300">
+            <InlineStack align="space-between">
+              <Text as="h3" variant="headingSm">Layer {index + 1}: {layer.label}</Text>
+              <Button
+                variant="plain"
+                tone="critical"
+                onClick={() => setLayers(layers.filter((_, i) => i !== index))}
+              >
+                Remove
+              </Button>
+            </InlineStack>
+            <InlineGrid columns={2} gap="300">
+              <Select
+                label="Type"
+                options={[
+                  { label: "Text", value: "text" },
+                  { label: "Image Upload", value: "image" },
+                  { label: "Fixed Image", value: "fixed_image" },
+                ]}
+                value={layer.layerType}
+                onChange={(val) => {
+                  const updated = [...layers];
+                  updated[index] = { ...updated[index], layerType: val };
+                  setLayers(updated);
+                }}
+              />
+              <TextField
+                label="Label"
+                value={layer.label}
+                onChange={(val) => {
+                  const updated = [...layers];
+                  updated[index] = { ...updated[index], label: val };
+                  setLayers(updated);
+                }}
+                autoComplete="off"
+              />
+            </InlineGrid>
+            <Checkbox
+              label="Customer can edit this layer"
+              checked={layer.customerEditable}
+              onChange={(val) => {
+                const updated = [...layers];
+                updated[index] = { ...updated[index], customerEditable: val };
+                setLayers(updated);
+              }}
+            />
+            {layer.layerType === "text" && (
+              <InlineGrid columns={3} gap="300">
+                <TextField
+                  label="Max characters"
+                  type="number"
+                  value={String(layer.maxChars || 3)}
+                  onChange={(val) => {
+                    const updated = [...layers];
+                    updated[index] = { ...updated[index], maxChars: parseInt(val) || 3 };
+                    setLayers(updated);
+                  }}
+                  autoComplete="off"
+                />
+                <TextField
+                  label="Placeholder"
+                  value={layer.placeholder || ""}
+                  onChange={(val) => {
+                    const updated = [...layers];
+                    updated[index] = { ...updated[index], placeholder: val };
+                    setLayers(updated);
+                  }}
+                  autoComplete="off"
+                />
+                <Select
+                  label="Default Font"
+                  options={fonts.map((f) => ({ label: f.displayName, value: f.key }))}
+                  value={layer.defaultFont || "script"}
+                  onChange={(val) => {
+                    const updated = [...layers];
+                    updated[index] = { ...updated[index], defaultFont: val };
+                    setLayers(updated);
+                  }}
+                />
+              </InlineGrid>
+            )}
+            {layer.layerType === "fixed_image" && (
+              <TextField
+                label="Fixed Image URL"
+                value={layer.fixedImageUrl || ""}
+                onChange={(val) => {
+                  const updated = [...layers];
+                  updated[index] = { ...updated[index], fixedImageUrl: val };
+                  setLayers(updated);
+                }}
+                autoComplete="off"
+                helpText="URL to a fixed image (e.g., a frame or logo) that cannot be changed by the customer"
+              />
+            )}
+          </BlockStack>
+        </Card>
+      ))}
+      <InlineStack gap="200">
+        <Button onClick={() => setLayers([...layers, {
+          layerType: "text", label: "Custom Text", customerEditable: true,
+          maxChars: 20, placeholder: "Your Text", defaultFont: "script", defaultColor: "#000000",
+          positionX: 10, positionY: 10, positionWidth: 80, positionHeight: 80,
+        }])}>
+          + Add Text Layer
+        </Button>
+        <Button onClick={() => setLayers([...layers, {
+          layerType: "image", label: "Upload Image", customerEditable: true,
+          positionX: 10, positionY: 10, positionWidth: 80, positionHeight: 80,
+        }])}>
+          + Add Image Upload Layer
+        </Button>
+        <Button onClick={() => setLayers([...layers, {
+          layerType: "fixed_image", label: "Frame", customerEditable: false,
+          fixedImageUrl: "", positionX: 0, positionY: 0, positionWidth: 100, positionHeight: 100,
+        }])}>
+          + Add Fixed Image Layer
+        </Button>
+      </InlineStack>
+    </BlockStack>
   );
 
-  // Edit print area for existing base
-  const handleEditPrintArea = useCallback((base: any) => {
-    setSelectedBase(base);
-    setSelectedProduct({
-      id: base.shopifyProductId,
-      title: base.productTitle,
-      handle: base.productHandle,
-      featuredImage: base.images.length > 0 ? { url: base.images[0].imageUrl } : null,
-    });
-    setPrintAreaX(base.printAreaX);
-    setPrintAreaY(base.printAreaY);
-    setPrintAreaWidth(base.printAreaWidth);
-    setPrintAreaHeight(base.printAreaHeight);
-    setShowCreateModal(true);
-  }, []);
+  const renderStep4 = () => (
+    <BlockStack gap="400">
+      <Text as="h2" variant="headingMd">Step 4: Fonts, Thread Colors & Variant Colors</Text>
 
-  const resourceName = {
-    singular: "product base",
-    plural: "product bases",
+      <Text as="h3" variant="headingSm">Enabled Fonts</Text>
+      <InlineStack gap="200" wrap>
+        {fonts.map((f) => (
+          <Checkbox
+            key={f.key}
+            label={f.displayName}
+            checked={enabledFontKeys.includes(f.key)}
+            onChange={(checked) => {
+              if (checked) {
+                setEnabledFontKeys([...enabledFontKeys, f.key]);
+              } else {
+                setEnabledFontKeys(enabledFontKeys.filter((k) => k !== f.key));
+              }
+            }}
+          />
+        ))}
+      </InlineStack>
+
+      {(selectedTechnique === "embroidery") && (
+        <>
+          <Divider />
+          <Text as="h3" variant="headingSm">
+            Thread Colors (leave all unchecked = all 15 available)
+          </Text>
+          <InlineStack gap="200" wrap>
+            {threadColors.map((tc) => (
+              <Checkbox
+                key={tc.hex}
+                label={
+                  <InlineStack gap="100" blockAlign="center">
+                    <div style={{
+                      width: 16, height: 16, borderRadius: 3,
+                      backgroundColor: tc.hex,
+                      border: "1px solid #ccc",
+                      display: "inline-block",
+                    }} />
+                    <span>{tc.name}</span>
+                  </InlineStack>
+                }
+                checked={enabledThreadColorHexes.includes(tc.hex)}
+                onChange={(checked) => {
+                  if (checked) {
+                    setEnabledThreadColorHexes([...enabledThreadColorHexes, tc.hex]);
+                  } else {
+                    setEnabledThreadColorHexes(enabledThreadColorHexes.filter((h) => h !== tc.hex));
+                  }
+                }}
+              />
+            ))}
+          </InlineStack>
+        </>
+      )}
+
+      <Divider />
+      <Text as="h3" variant="headingSm">
+        Variant Colors (leave all unchecked = all colors available)
+      </Text>
+      <InlineStack gap="200" wrap>
+        {selectedBase?.variants.map((v) => (
+          <Checkbox
+            key={v.color}
+            label={
+              <InlineStack gap="100" blockAlign="center">
+                <div style={{
+                  width: 16, height: 16, borderRadius: 3,
+                  backgroundColor: v.colorHex,
+                  border: "1px solid #ccc",
+                  display: "inline-block",
+                }} />
+                <span>{v.color}</span>
+              </InlineStack>
+            }
+            checked={enabledVariantColors.includes(v.color)}
+            onChange={(checked) => {
+              if (checked) {
+                setEnabledVariantColors([...enabledVariantColors, v.color]);
+              } else {
+                setEnabledVariantColors(enabledVariantColors.filter((c) => c !== v.color));
+              }
+            }}
+          />
+        ))}
+      </InlineStack>
+    </BlockStack>
+  );
+
+  const renderStep5 = () => (
+    <BlockStack gap="400">
+      <Text as="h2" variant="headingMd">Step 5: Print Area Position</Text>
+      <Text as="p" variant="bodyMd" tone="subdued">
+        Adjust where the personalization appears on the mockup preview image.
+        Values are percentages of the mockup image dimensions.
+      </Text>
+      <InlineGrid columns={2} gap="400">
+        <RangeSlider
+          label={`X Position: ${printAreaX}%`}
+          value={printAreaX}
+          min={0} max={80} step={1}
+          onChange={(val) => setPrintAreaX(val as number)}
+          output
+        />
+        <RangeSlider
+          label={`Y Position: ${printAreaY}%`}
+          value={printAreaY}
+          min={0} max={80} step={1}
+          onChange={(val) => setPrintAreaY(val as number)}
+          output
+        />
+        <RangeSlider
+          label={`Width: ${printAreaWidth}%`}
+          value={printAreaWidth}
+          min={10} max={100} step={1}
+          onChange={(val) => setPrintAreaWidth(val as number)}
+          output
+        />
+        <RangeSlider
+          label={`Height: ${printAreaHeight}%`}
+          value={printAreaHeight}
+          min={5} max={100} step={1}
+          onChange={(val) => setPrintAreaHeight(val as number)}
+          output
+        />
+      </InlineGrid>
+      <Box padding="400" background="bg-surface-secondary" borderRadius="200">
+        <div style={{ position: "relative", width: "100%", paddingBottom: "75%", backgroundColor: "#e5e5e5", borderRadius: 8, overflow: "hidden" }}>
+          <div style={{
+            position: "absolute",
+            left: `${printAreaX}%`,
+            top: `${printAreaY}%`,
+            width: `${printAreaWidth}%`,
+            height: `${printAreaHeight}%`,
+            border: "2px dashed #007ace",
+            backgroundColor: "rgba(0, 122, 206, 0.1)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 12,
+            color: "#007ace",
+          }}>
+            Print Area
+          </div>
+        </div>
+      </Box>
+    </BlockStack>
+  );
+
+  const renderStep6 = () => (
+    <BlockStack gap="400">
+      <Text as="h2" variant="headingMd">Step 6: Link Shopify Product</Text>
+      <Text as="p" variant="bodyMd" tone="subdued">
+        Enter the Shopify product details. You can find the product ID in the URL
+        when editing a product in Shopify admin (e.g., /products/123456789).
+      </Text>
+      <FormLayout>
+        <TextField
+          label="Shopify Product ID"
+          value={shopifyProductId}
+          onChange={setShopifyProductId}
+          autoComplete="off"
+          placeholder="gid://shopify/Product/123456789 or just 123456789"
+          helpText="The numeric product ID from your Shopify admin URL"
+        />
+        <TextField
+          label="Product Title"
+          value={productTitle}
+          onChange={setProductTitle}
+          autoComplete="off"
+          placeholder="Custom Monogram Hat"
+        />
+        <TextField
+          label="Product Handle (optional)"
+          value={productHandle}
+          onChange={setProductHandle}
+          autoComplete="off"
+          placeholder="custom-monogram-hat"
+        />
+      </FormLayout>
+    </BlockStack>
+  );
+
+  // ─── Summary before create ──────────────────────────────────────────────
+  const renderSummary = () => {
+    const base = productBases.find((pb) => pb.slug === selectedBaseSlug);
+    return (
+      <BlockStack gap="300">
+        <Text as="h2" variant="headingMd">Review & Create</Text>
+        <Box padding="400" background="bg-surface-secondary" borderRadius="200">
+          <BlockStack gap="200">
+            <Text as="p" variant="bodyMd"><strong>Product Base:</strong> {base?.name} ({base?.brand} {base?.model})</Text>
+            <Text as="p" variant="bodyMd"><strong>Technique:</strong> {selectedTechnique}</Text>
+            <Text as="p" variant="bodyMd"><strong>Placement:</strong> {selectedPlacement}</Text>
+            <Text as="p" variant="bodyMd"><strong>Layers:</strong> {layers.length} ({layers.map((l) => l.label).join(", ")})</Text>
+            <Text as="p" variant="bodyMd"><strong>Fonts:</strong> {enabledFontKeys.join(", ")}</Text>
+            <Text as="p" variant="bodyMd"><strong>Thread Colors:</strong> {enabledThreadColorHexes.length || "All 15"}</Text>
+            <Text as="p" variant="bodyMd"><strong>Variant Colors:</strong> {enabledVariantColors.length || "All"}</Text>
+            <Text as="p" variant="bodyMd"><strong>Print Area:</strong> x:{printAreaX}% y:{printAreaY}% w:{printAreaWidth}% h:{printAreaHeight}%</Text>
+            <Text as="p" variant="bodyMd"><strong>Shopify Product:</strong> {productTitle} ({shopifyProductId})</Text>
+          </BlockStack>
+        </Box>
+      </BlockStack>
+    );
   };
 
-  const rowMarkup = productBases.map((base: any, index: number) => (
-    <IndexTable.Row id={base.id} key={base.id} position={index}>
-      <IndexTable.Cell>
-        <Text variant="bodyMd" fontWeight="bold" as="span">
-          {base.productTitle}
-        </Text>
-      </IndexTable.Cell>
-      <IndexTable.Cell>
-        <InlineStack gap="200">
-          {base.images.length > 0 ? (
-            base.images.slice(0, 4).map((img: any) => (
-              <Thumbnail
-                key={img.id}
-                source={img.imageUrl}
-                alt={img.variantTitle || "Base"}
-                size="small"
-              />
-            ))
-          ) : (
-            <Text as="span" tone="subdued">No images</Text>
-          )}
-          {base.images.length > 4 && (
-            <Text as="span" tone="subdued">+{base.images.length - 4}</Text>
-          )}
-        </InlineStack>
-      </IndexTable.Cell>
-      <IndexTable.Cell>
-        <Text as="span">{base.images.length} variant(s)</Text>
-      </IndexTable.Cell>
-      <IndexTable.Cell>
-        <Badge tone={base.isActive ? "success" : undefined}>
-          {base.isActive ? "Active" : "Inactive"}
-        </Badge>
-      </IndexTable.Cell>
-      <IndexTable.Cell>
-        <InlineStack gap="200">
-          <Button size="slim" onClick={() => handleManageImages(base)}>
-            Images
-          </Button>
-          <Button size="slim" onClick={() => handleEditPrintArea(base)}>
-            Print Area
-          </Button>
-          <Button
-            size="slim"
-            tone="critical"
-            onClick={() => handleDeleteBase(base.id)}
-          >
-            Delete
-          </Button>
-        </InlineStack>
-      </IndexTable.Cell>
-    </IndexTable.Row>
-  ));
+  const wizardSteps = [renderStep1, renderStep2, renderStep3, renderStep4, renderStep5, renderStep6, renderSummary];
+  const stepTitles = ["Product Base", "Technique", "Layers", "Options", "Print Area", "Shopify Link", "Review"];
+  const totalSteps = wizardSteps.length;
+
+  const canAdvance = () => {
+    switch (wizardStep) {
+      case 1: return !!selectedBaseSlug;
+      case 2: return !!selectedTechnique && !!selectedPlacement;
+      case 3: return layers.length > 0;
+      case 4: return enabledFontKeys.length > 0;
+      case 5: return true;
+      case 6: return !!shopifyProductId && !!productTitle;
+      case 7: return true;
+      default: return false;
+    }
+  };
+
+  // ─── Template list ──────────────────────────────────────────────────────
+
+  const getBaseInfo = (slug: string) => {
+    const base = productBases.find((pb) => pb.slug === slug);
+    return base ? `${base.brand} ${base.model}` : slug;
+  };
 
   return (
     <Page>
-      <TitleBar title="Product Bases" />
-      <BlockStack gap="500">
-        {actionData && "error" in actionData && actionData.error && (
-          <Banner tone="critical">
-            <p>{actionData.error as string}</p>
-          </Banner>
-        )}
+      <TitleBar title="Product Templates" />
+      <Layout>
+        <Layout.Section>
+          {actionData && 'error' in actionData && (
+            <Banner tone="critical">
+              <Text as="p" variant="bodyMd">{actionData.error}</Text>
+            </Banner>
+          )}
 
-        {actionData && "message" in actionData && actionData.message && (
-          <Banner tone="success" onDismiss={() => {}}>
-            <p>{actionData.message as string}</p>
-          </Banner>
-        )}
-
-        <Layout>
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="400">
-                <InlineStack align="space-between">
-                  <Text as="h2" variant="headingMd">
-                    Product Bases
-                  </Text>
-                  <Button variant="primary" onClick={handleOpenCreate}>
-                    Add Product Base
-                  </Button>
-                </InlineStack>
-
-                <Text as="p" tone="subdued">
-                  Upload blank mockup photos for each product variant. These
-                  images are used as the base for the live monogram preview on
-                  the storefront.
-                </Text>
-
-                {productBases.length === 0 ? (
-                  <EmptyState
-                    heading="No product bases yet"
-                    image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-                    action={{
-                      content: "Add Product Base",
-                      onAction: handleOpenCreate,
-                    }}
-                  >
-                    <p>
-                      Add a product base to start configuring personalization
-                      previews. Upload blank mockup photos for each color
-                      variant and define where the monogram should appear.
-                    </p>
-                  </EmptyState>
-                ) : (
-                  <IndexTable
-                    resourceName={resourceName}
-                    itemCount={productBases.length}
-                    headings={[
-                      { title: "Product" },
-                      { title: "Mockup Images" },
-                      { title: "Variants" },
-                      { title: "Status" },
-                      { title: "Actions" },
-                    ]}
-                    selectable={false}
-                  >
-                    {rowMarkup}
-                  </IndexTable>
-                )}
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-        </Layout>
-      </BlockStack>
-
-      {/* ── Create / Edit Product Base Modal ── */}
-      {showCreateModal && (
-        <Modal
-          open={showCreateModal}
-          onClose={() => {
-            setShowCreateModal(false);
-            setSelectedProduct(null);
-            setSelectedBase(null);
-          }}
-          title={selectedBase ? "Edit Print Area" : "Add Product Base"}
-          primaryAction={{
-            content: "Save",
-            onAction: handleSaveBase,
-            disabled: !selectedProduct,
-            loading: isLoading,
-          }}
-          secondaryActions={[
-            {
-              content: "Cancel",
-              onAction: () => {
-                setShowCreateModal(false);
-                setSelectedProduct(null);
-                setSelectedBase(null);
-              },
-            },
-          ]}
-        >
-          <Modal.Section>
+          <Card>
             <BlockStack gap="400">
-              {!selectedBase && (
-                <>
-                  <Text as="h3" variant="headingSm">
-                    Select a Product
+              <InlineStack align="space-between">
+                <Text as="h2" variant="headingMd">Product Templates</Text>
+                <Button variant="primary" onClick={() => { resetWizard(); setShowWizard(true); }}>
+                  + New Template
+                </Button>
+              </InlineStack>
+
+              {templates.length === 0 ? (
+                <EmptyState
+                  heading="No product templates yet"
+                  image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+                >
+                  <Text as="p" variant="bodyMd">
+                    Create a template to link a Shopify product to a Printful product base
+                    with customization options.
                   </Text>
-                  {products.length === 0 ? (
-                    <InlineStack align="center">
-                      <Spinner size="small" />
-                      <Text as="span">Loading products...</Text>
-                    </InlineStack>
-                  ) : (
-                    <BlockStack gap="200">
-                      {products.map((product: any) => (
-                        <div
-                          key={product.id}
-                          onClick={() => handleSelectProduct(product)}
-                          style={{
-                            padding: "12px",
-                            border:
-                              selectedProduct?.id === product.id
-                                ? "2px solid #008060"
-                                : "1px solid #e1e3e5",
-                            borderRadius: "8px",
-                            cursor: "pointer",
-                            backgroundColor:
-                              selectedProduct?.id === product.id
-                                ? "#f0fdf4"
-                                : "white",
-                          }}
-                        >
-                          <InlineStack gap="300" blockAlign="center">
-                            {product.featuredImage && (
-                              <Thumbnail
-                                source={product.featuredImage.url}
-                                alt={product.title}
-                                size="small"
-                              />
-                            )}
-                            <BlockStack gap="100">
-                              <Text as="span" fontWeight="bold">
-                                {product.title}
-                              </Text>
-                              <Text as="span" tone="subdued">
-                                {product.variants.edges.length} variant(s)
-                              </Text>
-                            </BlockStack>
-                          </InlineStack>
-                        </div>
-                      ))}
-                    </BlockStack>
-                  )}
-                  <Divider />
-                </>
-              )}
-
-              {selectedProduct && (
-                <>
-                  <Text as="h3" variant="headingSm">
-                    Print Area Position
-                  </Text>
-                  <Text as="p" tone="subdued">
-                    Define where the monogram text should appear on the product
-                    mockup. Values are percentages of the image dimensions.
-                  </Text>
-
-                  {/* Visual preview of print area */}
-                  <div
-                    style={{
-                      position: "relative",
-                      width: "100%",
-                      paddingBottom: "100%",
-                      backgroundColor: "#f6f6f7",
-                      borderRadius: "8px",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {selectedProduct.featuredImage && (
-                      <img
-                        src={selectedProduct.featuredImage.url}
-                        alt={selectedProduct.title}
-                        style={{
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "contain",
-                        }}
-                      />
-                    )}
-                    <div
-                      style={{
-                        position: "absolute",
-                        left: `${printAreaX}%`,
-                        top: `${printAreaY}%`,
-                        width: `${printAreaWidth}%`,
-                        height: `${printAreaHeight}%`,
-                        border: "2px dashed #008060",
-                        backgroundColor: "rgba(0, 128, 96, 0.1)",
-                        borderRadius: "4px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Text as="span" tone="success">
-                        ABC
-                      </Text>
-                    </div>
-                  </div>
-
-                  <FormLayout>
-                    <FormLayout.Group>
-                      <RangeSlider
-                        label={`Left: ${printAreaX}%`}
-                        value={printAreaX}
-                        min={0}
-                        max={80}
-                        onChange={(v) => setPrintAreaX(v as number)}
-                        output
-                      />
-                      <RangeSlider
-                        label={`Top: ${printAreaY}%`}
-                        value={printAreaY}
-                        min={0}
-                        max={80}
-                        onChange={(v) => setPrintAreaY(v as number)}
-                        output
-                      />
-                    </FormLayout.Group>
-                    <FormLayout.Group>
-                      <RangeSlider
-                        label={`Width: ${printAreaWidth}%`}
-                        value={printAreaWidth}
-                        min={10}
-                        max={100}
-                        onChange={(v) => setPrintAreaWidth(v as number)}
-                        output
-                      />
-                      <RangeSlider
-                        label={`Height: ${printAreaHeight}%`}
-                        value={printAreaHeight}
-                        min={5}
-                        max={80}
-                        onChange={(v) => setPrintAreaHeight(v as number)}
-                        output
-                      />
-                    </FormLayout.Group>
-                  </FormLayout>
-                </>
-              )}
-            </BlockStack>
-          </Modal.Section>
-        </Modal>
-      )}
-
-      {/* ── Manage Images Modal ── */}
-      {showImageModal && selectedBase && (
-        <Modal
-          open={showImageModal}
-          onClose={() => {
-            setShowImageModal(false);
-            setSelectedBase(null);
-          }}
-          title={`Mockup Images: ${selectedBase.productTitle}`}
-          large
-        >
-          <Modal.Section>
-            <BlockStack gap="400">
-              <Text as="p" tone="subdued">
-                Upload blank mockup photos for each color variant. The monogram
-                will be overlaid on these images in the live preview.
-              </Text>
-
-              {/* Existing images */}
-              {selectedBase.images.length > 0 && (
-                <BlockStack gap="300">
-                  <Text as="h3" variant="headingSm">
-                    Current Images
-                  </Text>
-                  {selectedBase.images.map((img: any) => (
-                    <InlineStack
-                      key={img.id}
-                      gap="400"
-                      blockAlign="center"
-                      align="space-between"
-                    >
-                      <InlineStack gap="300" blockAlign="center">
-                        <Thumbnail
-                          source={img.imageUrl}
-                          alt={img.variantTitle || "Base"}
-                          size="medium"
-                        />
-                        <BlockStack gap="100">
-                          <Text as="span" fontWeight="bold">
-                            {img.variantTitle || "Default"}
+                </EmptyState>
+              ) : (
+                <IndexTable
+                  itemCount={templates.length}
+                  headings={[
+                    { title: "Product" },
+                    { title: "Base" },
+                    { title: "Technique" },
+                    { title: "Placement" },
+                    { title: "Layers" },
+                    { title: "Mockups" },
+                    { title: "Status" },
+                    { title: "Actions" },
+                  ]}
+                  selectable={false}
+                >
+                  {templates.map((template, index) => (
+                    <IndexTable.Row key={template.id} id={template.id} position={index}>
+                      <IndexTable.Cell>
+                        <Text as="span" variant="bodyMd" fontWeight="bold">
+                          {template.productTitle}
+                        </Text>
+                      </IndexTable.Cell>
+                      <IndexTable.Cell>{getBaseInfo(template.productBaseSlug)}</IndexTable.Cell>
+                      <IndexTable.Cell>
+                        <Badge>{template.technique}</Badge>
+                      </IndexTable.Cell>
+                      <IndexTable.Cell>{template.placementKey}</IndexTable.Cell>
+                      <IndexTable.Cell>{template.layers.length} layer(s)</IndexTable.Cell>
+                      <IndexTable.Cell>
+                        <InlineStack gap="200">
+                          <Text as="span" variant="bodyMd">
+                            {template.mockupImages.length} image(s)
                           </Text>
-                          {img.shopifyVariantId && (
-                            <Text as="span" tone="subdued">
-                              Variant ID: {img.shopifyVariantId}
-                            </Text>
+                          <Button
+                            variant="plain"
+                            onClick={() => {
+                              setMockupTemplateId(template.id);
+                              setShowMockupModal(true);
+                            }}
+                          >
+                            + Add
+                          </Button>
+                        </InlineStack>
+                      </IndexTable.Cell>
+                      <IndexTable.Cell>
+                        <Button
+                          variant="plain"
+                          onClick={() => handleToggleActive(template.id)}
+                        >
+                          {template.isActive ? (
+                            <Badge tone="success">Active</Badge>
+                          ) : (
+                            <Badge>Inactive</Badge>
                           )}
-                        </BlockStack>
-                      </InlineStack>
-                      <Button
-                        tone="critical"
-                        size="slim"
-                        onClick={() => handleRemoveImage(img.id)}
-                      >
-                        Remove
-                      </Button>
-                    </InlineStack>
+                        </Button>
+                      </IndexTable.Cell>
+                      <IndexTable.Cell>
+                        <Button
+                          variant="plain"
+                          tone="critical"
+                          onClick={() => handleDeleteTemplate(template.id)}
+                        >
+                          Delete
+                        </Button>
+                      </IndexTable.Cell>
+                    </IndexTable.Row>
                   ))}
-                </BlockStack>
+                </IndexTable>
               )}
 
-              <Divider />
-
-              {/* Upload new image */}
-              <Text as="h3" variant="headingSm">
-                Add New Mockup Image
-              </Text>
-
-              <FormLayout>
-                <TextField
-                  label="Variant Name"
-                  value={selectedVariantTitle}
-                  onChange={setSelectedVariantTitle}
-                  placeholder="e.g. White, Navy, Black"
-                  helpText="The color/variant this mockup represents"
-                  autoComplete="off"
-                />
-                <TextField
-                  label="Variant ID (optional)"
-                  value={selectedVariantId}
-                  onChange={setSelectedVariantId}
-                  placeholder="e.g. gid://shopify/ProductVariant/123456"
-                  helpText="Shopify variant ID to link this image to. Leave blank for default."
-                  autoComplete="off"
-                />
-              </FormLayout>
-
-              <DropZone
-                onDrop={handleDropZoneDrop}
-                accept="image/*"
-                type="image"
-                allowMultiple={false}
-              >
-                {uploadingImage ? (
-                  <Box padding="800">
-                    <InlineStack align="center" gap="200">
-                      <Spinner size="small" />
-                      <Text as="span">Uploading and processing... This may take a few seconds.</Text>
+              {/* Show mockup images for each template */}
+              {templates.filter((t) => t.mockupImages.length > 0).map((template) => (
+                <Box key={template.id} padding="400" background="bg-surface-secondary" borderRadius="200">
+                  <BlockStack gap="200">
+                    <Text as="h3" variant="headingSm">
+                      Mockups: {template.productTitle}
+                    </Text>
+                    <InlineStack gap="300" wrap>
+                      {template.mockupImages.map((img) => (
+                        <BlockStack key={img.id} gap="100" inlineAlign="center">
+                          <Thumbnail source={img.imageUrl} alt={img.variantColor} size="large" />
+                          <InlineStack gap="100" blockAlign="center">
+                            <div style={{
+                              width: 12, height: 12, borderRadius: 2,
+                              backgroundColor: img.variantColorHex || "#ccc",
+                              border: "1px solid #999",
+                            }} />
+                            <Text as="span" variant="bodySm">{img.variantColor}</Text>
+                          </InlineStack>
+                          <Button variant="plain" tone="critical" onClick={() => handleDeleteMockup(img.id)}>
+                            Remove
+                          </Button>
+                        </BlockStack>
+                      ))}
                     </InlineStack>
-                  </Box>
-                ) : (
-                  <DropZone.FileUpload
-                    actionTitle="Upload mockup image"
-                    actionHint="Accepts PNG, JPG. Use a blank product photo."
-                  />
-                )}
-              </DropZone>
+                  </BlockStack>
+                </Box>
+              ))}
             </BlockStack>
-          </Modal.Section>
-        </Modal>
-      )}
+          </Card>
+        </Layout.Section>
+      </Layout>
+
+      {/* ─── Create Template Wizard Modal ─── */}
+      <Modal
+        open={showWizard}
+        onClose={() => setShowWizard(false)}
+        title={`New Product Template — Step ${wizardStep} of ${totalSteps}: ${stepTitles[wizardStep - 1]}`}
+        primaryAction={
+          wizardStep === totalSteps
+            ? { content: "Create Template", onAction: handleCreateTemplate, loading: isLoading }
+            : { content: "Next", onAction: () => setWizardStep(wizardStep + 1), disabled: !canAdvance() }
+        }
+        secondaryActions={
+          wizardStep > 1
+            ? [{ content: "Back", onAction: () => setWizardStep(wizardStep - 1) }]
+            : [{ content: "Cancel", onAction: () => setShowWizard(false) }]
+        }
+        large
+      >
+        <Modal.Section>
+          {wizardSteps[wizardStep - 1]()}
+        </Modal.Section>
+      </Modal>
+
+      {/* ─── Add Mockup Image Modal ─── */}
+      <Modal
+        open={showMockupModal}
+        onClose={() => setShowMockupModal(false)}
+        title="Add Mockup Image"
+        primaryAction={{
+          content: "Add Mockup",
+          onAction: handleAddMockup,
+          disabled: !mockupVariantColor || !mockupImageUrl,
+          loading: isLoading,
+        }}
+        secondaryActions={[{ content: "Cancel", onAction: () => setShowMockupModal(false) }]}
+      >
+        <Modal.Section>
+          <BlockStack gap="400">
+            <Text as="p" variant="bodyMd" tone="subdued">
+              Add a blank mockup photo for a specific variant color.
+              The monogram preview will be overlaid on this image.
+            </Text>
+            {(() => {
+              const template = templates.find((t) => t.id === mockupTemplateId);
+              const base = template ? productBases.find((pb) => pb.slug === template.productBaseSlug) : null;
+              const variantOptions = base
+                ? [
+                    { label: "Default (fallback)", value: "Default" },
+                    ...base.variants.map((v) => ({ label: v.color, value: v.color })),
+                  ]
+                : [{ label: "Default", value: "Default" }];
+
+              return (
+                <Select
+                  label="Variant Color"
+                  options={variantOptions}
+                  value={mockupVariantColor}
+                  onChange={(val) => {
+                    setMockupVariantColor(val);
+                    const variant = base?.variants.find((v) => v.color === val);
+                    setMockupVariantColorHex(variant?.colorHex || "#ffffff");
+                  }}
+                />
+              );
+            })()}
+            <TextField
+              label="Mockup Image URL"
+              value={mockupImageUrl}
+              onChange={setMockupImageUrl}
+              autoComplete="off"
+              placeholder="https://cdn.shopify.com/... or any public image URL"
+              helpText="Paste a direct URL to the blank mockup image. You can upload images to Shopify Files first."
+            />
+            {mockupImageUrl && (
+              <Box padding="200">
+                <img
+                  src={mockupImageUrl}
+                  alt="Preview"
+                  style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 8 }}
+                />
+              </Box>
+            )}
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
     </Page>
   );
 }

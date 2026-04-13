@@ -33,6 +33,138 @@ model Session {
   refreshTokenExpires DateTime?
 }
 
+// ─── Product Template ────────────────────────────────────────────────────────
+// Links a Shopify product to a product base from the registry,
+// with chosen technique and placement configuration.
+model ProductTemplate {
+  id                  String   @id @default(cuid())
+  shop                String
+
+  // Shopify product link
+  shopifyProductId    String   // e.g. "gid://shopify/Product/123456"
+  productTitle        String   // cached product title for display
+  productHandle       String?  // cached product handle
+
+  // Product base reference (slug from product-bases.ts registry)
+  productBaseSlug     String   // e.g. "yupoong-6245cm" or "comfort-colors-1717"
+
+  // Chosen technique for this product
+  technique           String   // e.g. "embroidery", "dtg", "dtfilm"
+
+  // Chosen placement key
+  placementKey        String   // e.g. "embroidery_front", "front", "embroidery_chest_left"
+
+  // Print area overlay position on mockup (% of image)
+  // These override the defaults from the registry for fine-tuning
+  printAreaX          Float    @default(25)
+  printAreaY          Float    @default(15)
+  printAreaWidth      Float    @default(50)
+  printAreaHeight     Float    @default(35)
+
+  // Which fonts are enabled for this template (JSON array of font keys)
+  enabledFonts        String   @default("[\"script\",\"block\"]")
+
+  // Which thread colors are enabled (JSON array of hex codes, empty = all)
+  enabledThreadColors String   @default("[]")
+
+  // Which product variant colors are enabled (JSON array of color names, empty = all)
+  enabledVariantColors String  @default("[]")
+
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  layers              TemplateLayer[]
+  mockupImages        MockupImage[]
+
+  @@unique([shop, shopifyProductId])
+  @@index([shop])
+  @@index([productBaseSlug])
+}
+
+// ─── Template Layer ──────────────────────────────────────────────────────────
+// A customizable or fixed element within a product template.
+// Layers are composited in sortOrder to create the final print file.
+model TemplateLayer {
+  id                  String   @id @default(cuid())
+  templateId          String
+
+  // Layer type: "text" | "image" | "fixed_image"
+  layerType           String
+
+  // Human-readable label shown to customer
+  label               String   @default("Custom Text")
+
+  // Whether the customer can edit this layer on the storefront
+  customerEditable    Boolean  @default(true)
+
+  // Position within the print area (% of print area dimensions)
+  positionX           Float    @default(10)
+  positionY           Float    @default(10)
+  positionWidth       Float    @default(80)
+  positionHeight      Float    @default(80)
+
+  // Sort order for compositing (lower = behind)
+  sortOrder           Int      @default(0)
+
+  // ── Text layer options ──
+  maxChars            Int?     @default(3)
+  placeholder         String?  @default("ABC")
+  // Enabled fonts for this layer (JSON array of font keys, empty = use template default)
+  enabledFonts        String?
+  // Default font key
+  defaultFont         String?  @default("script")
+  // Default text color hex
+  defaultColor        String?  @default("#000000")
+
+  // ── Image layer options ──
+  acceptedFileTypes   String?  @default("[\"image/png\",\"image/jpeg\"]")
+  maxFileSizeMb       Float?   @default(10)
+
+  // ── Fixed image layer options ──
+  fixedImageUrl       String?  // URL to the fixed/template image (e.g., a frame)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  template            ProductTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+}
+
+// ─── Mockup Image ────────────────────────────────────────────────────────────
+// A blank product photo for a specific color variant.
+// Used as the base for the live preview overlay on the storefront.
+model MockupImage {
+  id                  String   @id @default(cuid())
+  templateId          String
+
+  // Which variant color this mockup represents
+  variantColor        String   // e.g. "White", "Navy", "Black"
+  variantColorHex     String?  // e.g. "#ffffff"
+  shopifyVariantId    String?  // optional link to Shopify variant GID
+
+  // The mockup image URL (Shopify Files CDN or external)
+  imageUrl            String
+
+  // Is this the default/fallback mockup?
+  isDefault           Boolean  @default(false)
+
+  sortOrder           Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  template            ProductTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, variantColor])
+  @@index([templateId])
+}
+
+// ─── Personalization Order ───────────────────────────────────────────────────
+// Tracks each personalized order from Shopify through to Printful fulfillment.
 model PersonalizationOrder {
   id                String   @id @default(cuid())
   shop              String
@@ -42,10 +174,22 @@ model PersonalizationOrder {
   customerEmail     String?
   customerName      String?
 
-  // Personalization inputs
-  monogramText      String
-  monogramStyle     String   @default("script")
-  threadColor       String   @default("#000000")
+  // Template reference
+  templateId        String?
+
+  // Product base reference
+  productBaseSlug   String?
+  technique         String?
+  placementKey      String?
+
+  // Personalization inputs (JSON blob for flexibility)
+  // Contains: { layers: [{ key, type, value, font, color }] }
+  personalizationData String  @default("{}")
+
+  // Legacy fields (kept for backward compat)
+  monogramText      String?
+  monogramStyle     String?  @default("script")
+  threadColor       String?  @default("#000000")
 
   // Processing status: pending | generating | uploading | submitting | completed | failed
   status            String   @default("pending")
@@ -57,60 +201,14 @@ model PersonalizationOrder {
   printfulOrderId   String?
   printfulStatus    String?
 
+  // Printful variant ID used for the order
+  printfulVariantId Int?
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   @@index([shop])
   @@index([shopifyOrderId])
   @@index([status])
-}
-
-// Product Base: links a Shopify product to personalization settings
-// Includes print area position (as % of image) for overlay placement
-model ProductBase {
-  id                String   @id @default(cuid())
-  shop              String
-  shopifyProductId  String   // e.g. "gid://shopify/Product/123456"
-  productTitle      String   // cached product title for display
-  productHandle     String?  // cached product handle
-
-  // Print area position as percentage of image dimensions (0-100)
-  printAreaX        Float    @default(25)   // left edge %
-  printAreaY        Float    @default(15)   // top edge %
-  printAreaWidth    Float    @default(50)   // width %
-  printAreaHeight   Float    @default(35)   // height %
-
-  // Default font options
-  enableScript      Boolean  @default(true)
-  enableBlock       Boolean  @default(true)
-
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  // Relations
-  images            ProductBaseImage[]
-
-  @@unique([shop, shopifyProductId])
-  @@index([shop])
-}
-
-// Product Base Image: a blank mockup photo for a specific variant
-// Each color variant gets its own blank mockup image
-model ProductBaseImage {
-  id                String   @id @default(cuid())
-  productBaseId     String
-  shopifyVariantId  String?  // null = default/fallback image
-  variantTitle      String?  // e.g. "White", "Navy", "Black" (cached)
-  imageUrl          String   // URL to the blank mockup image (Shopify Files CDN)
-  sortOrder         Int      @default(0)
-
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  // Relations
-  productBase       ProductBase @relation(fields: [productBaseId], references: [id], onDelete: Cascade)
-
-  @@unique([productBaseId, shopifyVariantId])
-  @@index([productBaseId])
+  @@index([templateId])
 }
