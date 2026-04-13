@@ -1,0 +1,30 @@
+# This file stores configurations for your Shopify app.
+
+name = "Printful Custom"
+client_id = "703595d48ab90f2160930b04ab7a2a35"
+application_url = "https://localhost"
+embedded = true
+
+[auth]
+redirect_urls = [ "https://localhost/auth/callback" ]
+
+[access_scopes]
+scopes = "write_orders,read_orders,read_products"
+
+[webhooks]
+api_version = "2026-04"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = ["app/uninstalled"]
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+  [[webhooks.subscriptions]]
+  topics = ["orders/create"]
+  uri = "/webhooks/orders/create"
+
+[build]
+automatically_update_urls_on_dev = true
