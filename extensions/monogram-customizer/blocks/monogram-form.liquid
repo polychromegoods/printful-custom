@@ -5,6 +5,7 @@
   - Font style selector (script / block)
   - Thread color picker (Printful's 15 embroidery colors)
   - Live preview overlaid on the product image
+  - Preview image URL saved as line item property for cart thumbnail
   Saves selections as hidden line item properties.
 {% endcomment %}
 
@@ -227,6 +228,7 @@
   <input type="hidden" name="properties[_monogram_text]" id="prop-monogram-text" value="">
   <input type="hidden" name="properties[_monogram_style]" id="prop-monogram-style" value="script">
   <input type="hidden" name="properties[_thread_color]" id="prop-thread-color" value="#000000">
+  <input type="hidden" name="properties[_preview_image]" id="prop-preview-image" value="">
 </div>
 
 <script>
@@ -241,6 +243,7 @@
     const propText = document.getElementById('prop-monogram-text');
     const propStyle = document.getElementById('prop-monogram-style');
     const propColor = document.getElementById('prop-thread-color');
+    const propPreviewImage = document.getElementById('prop-preview-image');
 
     let currentStyle = 'script';
     let currentColor = '#000000';
@@ -249,9 +252,16 @@
     let overlayCtx = null;
     let productImageEl = null;
 
+    // Build the preview image URL via app proxy
+    function getPreviewImageUrl() {
+      if (!currentText) return '';
+      const encodedColor = encodeURIComponent(currentColor);
+      // App proxy URL: /apps/api/preview?text=ABC&style=script&color=%23000000
+      return '/apps/api/preview?text=' + encodeURIComponent(currentText) + '&style=' + encodeURIComponent(currentStyle) + '&color=' + encodedColor;
+    }
+
     // Find the product image and attach overlay canvas
     function initOverlay() {
-      // Try common selectors for the main product image in Shopify themes
       const selectors = [
         '.product__media img',
         '.product-media-container img',
@@ -267,8 +277,6 @@
         '.product__media-wrapper img',
         '.product__media-list img:first-of-type',
         'product-info media-gallery img',
-        'img[srcset*="hat"]',
-        'img[srcset*="cap"]',
         '.media-gallery img'
       ];
 
@@ -313,13 +321,9 @@
       parent.appendChild(overlayCanvas);
       overlayCtx = overlayCanvas.getContext('2d');
 
-      // Position the canvas over the image
       positionOverlay();
-
-      // Reposition on resize
       window.addEventListener('resize', positionOverlay);
 
-      // Watch for image changes (e.g. variant image swap)
       const observer = new MutationObserver(() => {
         setTimeout(positionOverlay, 100);
       });
@@ -350,6 +354,7 @@
         currentStyle = this.dataset.style;
         propStyle.value = currentStyle;
         renderPreview();
+        updatePreviewImageUrl();
       });
     });
 
@@ -363,6 +368,7 @@
       colorNameEl.textContent = swatch.dataset.name;
       propColor.value = currentColor;
       renderPreview();
+      updatePreviewImageUrl();
     });
 
     // Text input
@@ -380,12 +386,28 @@
       }
 
       renderPreview();
+      updatePreviewImageUrl();
     });
+
+    // Update the hidden preview image URL property
+    function updatePreviewImageUrl() {
+      propPreviewImage.value = getPreviewImageUrl();
+    }
 
     // Intercept add-to-cart if no monogram text
     const form = document.querySelector('form[action*="/cart/add"]') || document.querySelector('product-form form');
     if (form) {
+      // Move hidden inputs into the form so they are submitted
+      const customizer = document.getElementById('monogram-customizer');
+      const hiddenInputs = customizer.querySelectorAll('input[type="hidden"]');
+      hiddenInputs.forEach(input => {
+        form.appendChild(input);
+      });
+
       form.addEventListener('submit', function(e) {
+        // Final update of preview URL before submit
+        updatePreviewImageUrl();
+
         if (currentText.length === 0) {
           e.preventDefault();
           errorEl.classList.add('visible');
@@ -406,7 +428,6 @@
       if (!currentText) return;
 
       // Position the monogram on the front of the hat
-      // The hat front center is roughly at 50% horizontal, 45% vertical
       const centerX = w * 0.50;
       const centerY = h * 0.42;
 
@@ -417,7 +438,7 @@
       overlayCtx.textAlign = 'center';
       overlayCtx.textBaseline = 'middle';
 
-      // Add a subtle text shadow for visibility on any background
+      // Subtle text shadow for visibility
       overlayCtx.shadowColor = 'rgba(0,0,0,0.15)';
       overlayCtx.shadowBlur = 2;
       overlayCtx.shadowOffsetX = 1;
@@ -427,13 +448,10 @@
         overlayCtx.font = baseSize + 'px "Great Vibes", cursive';
         overlayCtx.fillText(currentText, centerX, centerY);
       } else {
-        // Block monogram: traditional style with larger center letter
         if (currentText.length === 3) {
-          // Larger center letter
           overlayCtx.font = 'bold ' + (baseSize * 1.3) + 'px "Montserrat", sans-serif';
           overlayCtx.fillText(currentText[1], centerX, centerY);
 
-          // Smaller side letters
           const sideSize = baseSize * 0.8;
           const spacing = baseSize * 1.2;
           overlayCtx.font = 'bold ' + sideSize + 'px "Montserrat", sans-serif';
@@ -454,10 +472,8 @@
 
     // Wait for fonts and images to load, then init overlay
     function waitAndInit() {
-      // Wait for fonts
       if (document.fonts && document.fonts.ready) {
         document.fonts.ready.then(() => {
-          // Wait a bit for the product image to fully render
           setTimeout(initOverlay, 500);
         });
       } else {
@@ -471,7 +487,6 @@
       window.addEventListener('load', waitAndInit);
     }
 
-    // Also re-init if the page does a soft navigation (Shopify themes with AJAX)
     document.addEventListener('shopify:section:load', waitAndInit);
   })();
 </script>

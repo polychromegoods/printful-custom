@@ -10,3 +10,7 @@ type = "theme"
   [[extensions.targeting]]
   module = "./blocks/monogram-form.liquid"
   target = "section"
+
+  [[extensions.targeting]]
+  module = "./blocks/cart-preview.liquid"
+  target = "body"
