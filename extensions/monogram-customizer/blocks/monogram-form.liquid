@@ -4,7 +4,7 @@
   - Text input (1-3 characters)
   - Font style selector (script / block)
   - Thread color picker (Printful's 15 embroidery colors)
-  - Live canvas preview
+  - Live preview overlaid on the product image
   Saves selections as hidden line item properties.
 {% endcomment %}
 
@@ -144,26 +144,6 @@
     margin-top: 6px;
   }
 
-  .monogram-customizer__preview-wrap {
-    margin-top: 16px;
-    text-align: center;
-  }
-
-  .monogram-customizer__preview-label {
-    font-size: 12px;
-    color: #999;
-    margin-bottom: 8px;
-  }
-
-  .monogram-customizer__preview-canvas {
-    width: 100%;
-    max-width: 320px;
-    height: auto;
-    border: 1px solid #e5e5e5;
-    border-radius: 6px;
-    background: white;
-  }
-
   .monogram-customizer__error {
     color: #cc0000;
     font-size: 12px;
@@ -173,6 +153,13 @@
 
   .monogram-customizer__error.visible {
     display: block;
+  }
+
+  /* Overlay canvas on product image */
+  .monogram-overlay-canvas {
+    position: absolute;
+    pointer-events: none;
+    z-index: 10;
   }
 </style>
 
@@ -236,12 +223,6 @@
     <div class="monogram-customizer__color-name" id="color-name">Black</div>
   </div>
 
-  <!-- Live Preview -->
-  <div class="monogram-customizer__preview-wrap">
-    <div class="monogram-customizer__preview-label">Preview</div>
-    <canvas id="monogram-preview" class="monogram-customizer__preview-canvas" width="660" height="240"></canvas>
-  </div>
-
   <!-- Hidden inputs for line item properties -->
   <input type="hidden" name="properties[_monogram_text]" id="prop-monogram-text" value="">
   <input type="hidden" name="properties[_monogram_style]" id="prop-monogram-style" value="script">
@@ -255,8 +236,6 @@
     const errorEl = document.getElementById('monogram-error');
     const colorPicker = document.getElementById('color-picker');
     const colorNameEl = document.getElementById('color-name');
-    const canvas = document.getElementById('monogram-preview');
-    const ctx = canvas.getContext('2d');
 
     // Hidden properties
     const propText = document.getElementById('prop-monogram-text');
@@ -266,6 +245,102 @@
     let currentStyle = 'script';
     let currentColor = '#000000';
     let currentText = '';
+    let overlayCanvas = null;
+    let overlayCtx = null;
+    let productImageEl = null;
+
+    // Find the product image and attach overlay canvas
+    function initOverlay() {
+      // Try common selectors for the main product image in Shopify themes
+      const selectors = [
+        '.product__media img',
+        '.product-media-container img',
+        '.product__media-item img',
+        '.product-featured-media img',
+        '.product__main-photos img',
+        '.product-single__photo img',
+        '.product__photo img',
+        'media-gallery img',
+        '.product--media img',
+        '[data-product-media-type="image"] img',
+        '.product-image-container img',
+        '.product__media-wrapper img',
+        '.product__media-list img:first-of-type',
+        'product-info media-gallery img',
+        'img[srcset*="hat"]',
+        'img[srcset*="cap"]',
+        '.media-gallery img'
+      ];
+
+      for (const sel of selectors) {
+        const img = document.querySelector(sel);
+        if (img && img.naturalWidth > 100) {
+          productImageEl = img;
+          break;
+        }
+      }
+
+      // Fallback: find the largest product image on the page
+      if (!productImageEl) {
+        const allImgs = document.querySelectorAll('img');
+        let largest = null;
+        let largestArea = 0;
+        allImgs.forEach(img => {
+          const area = img.offsetWidth * img.offsetHeight;
+          if (area > largestArea && img.offsetWidth > 200) {
+            largest = img;
+            largestArea = area;
+          }
+        });
+        productImageEl = largest;
+      }
+
+      if (!productImageEl) {
+        console.warn('Monogram Customizer: Could not find product image for overlay');
+        return;
+      }
+
+      // Make the image's parent position:relative so we can overlay
+      const parent = productImageEl.parentElement;
+      const parentPos = window.getComputedStyle(parent).position;
+      if (parentPos === 'static') {
+        parent.style.position = 'relative';
+      }
+
+      // Create overlay canvas
+      overlayCanvas = document.createElement('canvas');
+      overlayCanvas.className = 'monogram-overlay-canvas';
+      parent.appendChild(overlayCanvas);
+      overlayCtx = overlayCanvas.getContext('2d');
+
+      // Position the canvas over the image
+      positionOverlay();
+
+      // Reposition on resize
+      window.addEventListener('resize', positionOverlay);
+
+      // Watch for image changes (e.g. variant image swap)
+      const observer = new MutationObserver(() => {
+        setTimeout(positionOverlay, 100);
+      });
+      observer.observe(parent, { childList: true, subtree: true, attributes: true });
+    }
+
+    function positionOverlay() {
+      if (!overlayCanvas || !productImageEl) return;
+
+      const rect = productImageEl.getBoundingClientRect();
+      const parentRect = productImageEl.parentElement.getBoundingClientRect();
+
+      overlayCanvas.width = rect.width;
+      overlayCanvas.height = rect.height;
+      overlayCanvas.style.left = (rect.left - parentRect.left) + 'px';
+      overlayCanvas.style.top = (rect.top - parentRect.top) + 'px';
+      overlayCanvas.style.width = rect.width + 'px';
+      overlayCanvas.style.height = rect.height + 'px';
+
+      renderPreview();
+    }
 
     // Style buttons
     document.querySelectorAll('.monogram-customizer__style-btn').forEach(btn => {
@@ -319,54 +394,85 @@
       });
     }
 
-    // Canvas preview rendering
+    // Canvas preview rendering — draw on the overlay canvas on top of the product image
     function renderPreview() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!overlayCanvas || !overlayCtx) return;
 
-      // Background
-      ctx.fillStyle = '#f9f9f9';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const w = overlayCanvas.width;
+      const h = overlayCanvas.height;
 
-      if (!currentText) {
-        ctx.fillStyle = '#ccc';
-        ctx.font = '16px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('Enter your initials above', canvas.width / 2, canvas.height / 2);
-        return;
-      }
+      overlayCtx.clearRect(0, 0, w, h);
 
-      ctx.fillStyle = currentColor;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      if (!currentText) return;
+
+      // Position the monogram on the front of the hat
+      // The hat front center is roughly at 50% horizontal, 45% vertical
+      const centerX = w * 0.50;
+      const centerY = h * 0.42;
+
+      // Scale font size relative to image size
+      const baseSize = Math.min(w, h) * 0.12;
+
+      overlayCtx.fillStyle = currentColor;
+      overlayCtx.textAlign = 'center';
+      overlayCtx.textBaseline = 'middle';
+
+      // Add a subtle text shadow for visibility on any background
+      overlayCtx.shadowColor = 'rgba(0,0,0,0.15)';
+      overlayCtx.shadowBlur = 2;
+      overlayCtx.shadowOffsetX = 1;
+      overlayCtx.shadowOffsetY = 1;
 
       if (currentStyle === 'script') {
-        ctx.font = '120px "Great Vibes", cursive';
-        ctx.fillText(currentText, canvas.width / 2, canvas.height / 2 + 10);
+        overlayCtx.font = baseSize + 'px "Great Vibes", cursive';
+        overlayCtx.fillText(currentText, centerX, centerY);
       } else {
         // Block monogram: traditional style with larger center letter
         if (currentText.length === 3) {
-          const centerX = canvas.width / 2;
-          const centerY = canvas.height / 2;
-
           // Larger center letter
-          ctx.font = '140px "Montserrat", sans-serif';
-          ctx.fillText(currentText[1], centerX, centerY);
+          overlayCtx.font = 'bold ' + (baseSize * 1.3) + 'px "Montserrat", sans-serif';
+          overlayCtx.fillText(currentText[1], centerX, centerY);
 
           // Smaller side letters
-          ctx.font = '90px "Montserrat", sans-serif';
-          ctx.fillText(currentText[0], centerX - 130, centerY);
-          ctx.fillText(currentText[2], centerX + 130, centerY);
+          const sideSize = baseSize * 0.8;
+          const spacing = baseSize * 1.2;
+          overlayCtx.font = 'bold ' + sideSize + 'px "Montserrat", sans-serif';
+          overlayCtx.fillText(currentText[0], centerX - spacing, centerY);
+          overlayCtx.fillText(currentText[2], centerX + spacing, centerY);
         } else {
-          ctx.font = '120px "Montserrat", sans-serif';
-          ctx.letterSpacing = '8px';
-          ctx.fillText(currentText, canvas.width / 2, canvas.height / 2);
+          overlayCtx.font = 'bold ' + baseSize + 'px "Montserrat", sans-serif';
+          overlayCtx.fillText(currentText, centerX, centerY);
         }
+      }
+
+      // Reset shadow
+      overlayCtx.shadowColor = 'transparent';
+      overlayCtx.shadowBlur = 0;
+      overlayCtx.shadowOffsetX = 0;
+      overlayCtx.shadowOffsetY = 0;
+    }
+
+    // Wait for fonts and images to load, then init overlay
+    function waitAndInit() {
+      // Wait for fonts
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(() => {
+          // Wait a bit for the product image to fully render
+          setTimeout(initOverlay, 500);
+        });
+      } else {
+        setTimeout(initOverlay, 1000);
       }
     }
 
-    // Initial render
-    renderPreview();
+    if (document.readyState === 'complete') {
+      waitAndInit();
+    } else {
+      window.addEventListener('load', waitAndInit);
+    }
+
+    // Also re-init if the page does a soft navigation (Shopify themes with AJAX)
+    document.addEventListener('shopify:section:load', waitAndInit);
   })();
 </script>
 
