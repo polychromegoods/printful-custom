@@ -100,6 +100,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
 
     if (!template) {
+      // Debug: list all templates so we can see what's actually stored
+      const allTemplates = await db.productTemplate.findMany({
+        select: { id: true, shopifyProductId: true, productTitle: true, shop: true, isActive: true },
+        take: 20,
+      });
       return new Response(
         JSON.stringify({
           found: false,
@@ -107,6 +112,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             searchedGid: gidProductId,
             searchedNumeric: numericId,
             shop: shop || "(none)",
+            allTemplatesInDb: allTemplates.map(t => ({
+              id: t.id,
+              shopifyProductId: t.shopifyProductId,
+              numericId: t.shopifyProductId.includes("/") ? t.shopifyProductId.split("/").pop() : t.shopifyProductId,
+              productTitle: t.productTitle,
+              shop: t.shop,
+              isActive: t.isActive,
+            })),
           },
         }),
         { status: 200, headers }

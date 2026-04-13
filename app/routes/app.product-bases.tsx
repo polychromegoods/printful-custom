@@ -107,6 +107,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const layersJson = formData.get("layers") as string;
       const layers = layersJson ? JSON.parse(layersJson) : [];
 
+      // Delete any existing template with the same shop + product ID to avoid unique constraint errors
+      try {
+        await db.productTemplate.deleteMany({
+          where: { shop: session.shop, shopifyProductId },
+        });
+      } catch (e) {
+        // Ignore — may not exist
+      }
+
       const template = await db.productTemplate.create({
         data: {
           shop: session.shop,
@@ -162,8 +171,25 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     if (intent === "delete_template") {
       const templateId = formData.get("templateId") as string;
-      await db.productTemplate.delete({ where: { id: templateId } });
+      try {
+        // First delete related records explicitly, then the template
+        await db.mockupImage.deleteMany({ where: { templateId } });
+        await db.templateLayer.deleteMany({ where: { templateId } });
+        await db.productTemplate.delete({ where: { id: templateId } });
+      } catch (e: any) {
+        console.error("Delete template error:", e.message);
+        // Try deleteMany as fallback
+        await db.productTemplate.deleteMany({ where: { id: templateId } });
+      }
       return json({ success: true });
+    }
+
+    if (intent === "purge_all_templates") {
+      // Nuclear option: delete ALL templates for this shop
+      await db.mockupImage.deleteMany({});
+      await db.templateLayer.deleteMany({});
+      await db.productTemplate.deleteMany({ where: { shop: session.shop } });
+      return json({ success: true, message: "All templates purged" });
     }
 
     if (intent === "update_print_area") {
@@ -675,6 +701,14 @@ export default function ProductBasesPage() {
     submit(formData, { method: "post" });
   }, [submit]);
 
+  const handlePurgeAllTemplates = useCallback(() => {
+    if (!confirm("⚠️ PURGE ALL TEMPLATES? This will delete every template, layer, and mockup in the database. This cannot be undone!")) return;
+    if (!confirm("Are you REALLY sure? Type OK to confirm.")) return;
+    const formData = new FormData();
+    formData.set("intent", "purge_all_templates");
+    submit(formData, { method: "post" });
+  }, [submit]);
+
   const handleToggleActive = useCallback((templateId: string) => {
     const formData = new FormData();
     formData.set("intent", "toggle_active");
@@ -1121,9 +1155,16 @@ export default function ProductBasesPage() {
             <BlockStack gap="400">
               <InlineStack align="space-between">
                 <Text as="h2" variant="headingMd">Product Templates</Text>
-                <Button variant="primary" onClick={() => { resetWizard(); setShowWizard(true); }}>
-                  + New Template
-                </Button>
+                <InlineStack gap="200">
+                  {templates.length > 0 && (
+                    <Button variant="plain" tone="critical" onClick={handlePurgeAllTemplates}>
+                      Purge All
+                    </Button>
+                  )}
+                  <Button variant="primary" onClick={() => { resetWizard(); setShowWizard(true); }}>
+                    + New Template
+                  </Button>
+                </InlineStack>
               </InlineStack>
 
               {templates.length === 0 ? (
