@@ -5,9 +5,11 @@
   - Font style selector (script / block)
   - Thread color picker (Printful's 15 embroidery colors)
   - Live preview overlaid on the product image
-  - On add-to-cart: builds an app proxy preview image URL and stores it
-    as a visible line item property so it appears in cart, checkout,
-    order confirmation, and admin.
+  
+  Strategy: Instead of intercepting the form submit (which Dawn's web component
+  prevents), we monkey-patch window.fetch to intercept any POST to /cart/add.js
+  and inject our monogram properties into the request body. This works regardless
+  of how the theme handles add-to-cart (form submit, AJAX, web component, etc.)
 {% endcomment %}
 
 <style>
@@ -163,34 +165,6 @@
     pointer-events: none;
     z-index: 10;
   }
-
-  /* Loading spinner for add-to-cart */
-  .monogram-customizer__loading {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 8px;
-    font-size: 13px;
-    color: #666;
-  }
-
-  .monogram-customizer__loading.visible {
-    display: flex;
-  }
-
-  .monogram-customizer__spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid #ddd;
-    border-top-color: #333;
-    border-radius: 50%;
-    animation: monogram-spin 0.6s linear infinite;
-  }
-
-  @keyframes monogram-spin {
-    to { transform: rotate(360deg); }
-  }
 </style>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -252,45 +226,133 @@
     </div>
     <div class="monogram-customizer__color-name" id="color-name">Black</div>
   </div>
-
-  <!-- Loading indicator shown during preview generation -->
-  <div class="monogram-customizer__loading" id="monogram-loading">
-    <div class="monogram-customizer__spinner"></div>
-    <span>Generating your monogram preview...</span>
-  </div>
 </div>
 
 <script>
   (function() {
+    'use strict';
+
     const textInput = document.getElementById('monogram-text');
     const charCount = document.getElementById('char-count');
     const errorEl = document.getElementById('monogram-error');
     const colorPicker = document.getElementById('color-picker');
     const colorNameEl = document.getElementById('color-name');
-    const loadingEl = document.getElementById('monogram-loading');
 
     let currentStyle = 'script';
     let currentColor = '#000000';
-    let currentColorName = 'Black';
     let currentText = '';
     let overlayCanvas = null;
     let overlayCtx = null;
     let productImageEl = null;
-    let isAddingToCart = false;
 
     // ─── Build the app proxy preview image URL ───
-    // This URL serves a PNG directly and can be used as an <img> src.
-    // Shopify renders image URLs in visible line item properties as thumbnails.
     function buildPreviewImageUrl() {
+      if (!currentText) return '';
       return '/apps/api/preview?text=' + encodeURIComponent(currentText)
         + '&style=' + encodeURIComponent(currentStyle)
         + '&color=' + encodeURIComponent(currentColor)
         + '&format=image';
     }
 
+    // ─── MONKEY-PATCH window.fetch ───
+    // Dawn theme's product-form web component uses fetch() to POST to /cart/add.js.
+    // We intercept that call and inject our monogram properties into the request body.
+    // This is the most reliable way because it works no matter how the theme adds to cart.
+    const originalFetch = window.fetch;
+    window.fetch = function(url, options) {
+      // Check if this is a cart/add.js call
+      var urlStr = (typeof url === 'string') ? url : (url && url.url ? url.url : '');
+      if (urlStr.indexOf('/cart/add') !== -1 && options && options.method && options.method.toUpperCase() === 'POST') {
+        // Only inject if there's monogram text
+        if (currentText && currentText.length > 0) {
+          try {
+            var body = options.body;
+            var parsed = null;
+
+            if (typeof body === 'string') {
+              parsed = JSON.parse(body);
+            } else if (body instanceof FormData) {
+              // Convert FormData to JSON-based request
+              parsed = {};
+              parsed.id = body.get('id');
+              parsed.quantity = body.get('quantity') || 1;
+              // Remove body, we'll replace it
+            }
+
+            if (parsed) {
+              // Ensure properties object exists
+              if (!parsed.properties) {
+                parsed.properties = {};
+              }
+
+              // Inject our monogram properties
+              parsed.properties['_monogram_text'] = currentText;
+              parsed.properties['_monogram_style'] = currentStyle;
+              parsed.properties['_thread_color'] = currentColor;
+              parsed.properties['Monogram Preview'] = buildPreviewImageUrl();
+
+              console.log('[Monogram] Injected properties into cart/add.js:', parsed.properties);
+
+              // Replace the body with our modified version
+              options.body = JSON.stringify(parsed);
+
+              // Ensure Content-Type is JSON
+              if (!options.headers) {
+                options.headers = {};
+              }
+              if (options.headers instanceof Headers) {
+                options.headers.set('Content-Type', 'application/json');
+              } else {
+                options.headers['Content-Type'] = 'application/json';
+              }
+            }
+          } catch (e) {
+            console.warn('[Monogram] Could not inject properties into fetch body:', e);
+          }
+        }
+      }
+      return originalFetch.apply(this, arguments);
+    };
+
+    // ─── Also patch XMLHttpRequest for older themes ───
+    var origXHROpen = XMLHttpRequest.prototype.open;
+    var origXHRSend = XMLHttpRequest.prototype.send;
+
+    XMLHttpRequest.prototype.open = function(method, url) {
+      this._monogramUrl = url;
+      this._monogramMethod = method;
+      return origXHROpen.apply(this, arguments);
+    };
+
+    XMLHttpRequest.prototype.send = function(body) {
+      if (this._monogramUrl && this._monogramUrl.indexOf('/cart/add') !== -1
+          && this._monogramMethod && this._monogramMethod.toUpperCase() === 'POST'
+          && currentText && currentText.length > 0) {
+        try {
+          var parsed = null;
+          if (typeof body === 'string') {
+            parsed = JSON.parse(body);
+          }
+          if (parsed) {
+            if (!parsed.properties) parsed.properties = {};
+            parsed.properties['_monogram_text'] = currentText;
+            parsed.properties['_monogram_style'] = currentStyle;
+            parsed.properties['_thread_color'] = currentColor;
+            parsed.properties['Monogram Preview'] = buildPreviewImageUrl();
+            console.log('[Monogram] Injected properties into XHR cart/add:', parsed.properties);
+            this.setRequestHeader('Content-Type', 'application/json');
+            return origXHRSend.call(this, JSON.stringify(parsed));
+          }
+        } catch (e) {
+          console.warn('[Monogram] Could not inject properties into XHR body:', e);
+        }
+      }
+      return origXHRSend.apply(this, arguments);
+    };
+
     // ─── Find the product image and attach overlay canvas ───
     function initOverlay() {
-      const selectors = [
+      var selectors = [
         '.product__media img',
         '.product-media-container img',
         '.product__media-item img',
@@ -308,8 +370,8 @@
         '.media-gallery img'
       ];
 
-      for (const sel of selectors) {
-        const img = document.querySelector(sel);
+      for (var i = 0; i < selectors.length; i++) {
+        var img = document.querySelector(selectors[i]);
         if (img && img.naturalWidth > 100) {
           productImageEl = img;
           break;
@@ -318,11 +380,11 @@
 
       // Fallback: find the largest product image on the page
       if (!productImageEl) {
-        const allImgs = document.querySelectorAll('img');
-        let largest = null;
-        let largestArea = 0;
-        allImgs.forEach(img => {
-          const area = img.offsetWidth * img.offsetHeight;
+        var allImgs = document.querySelectorAll('img');
+        var largest = null;
+        var largestArea = 0;
+        allImgs.forEach(function(img) {
+          var area = img.offsetWidth * img.offsetHeight;
           if (area > largestArea && img.offsetWidth > 200) {
             largest = img;
             largestArea = area;
@@ -332,13 +394,13 @@
       }
 
       if (!productImageEl) {
-        console.warn('Monogram Customizer: Could not find product image for overlay');
+        console.warn('[Monogram] Could not find product image for overlay');
         return;
       }
 
       // Make the image's parent position:relative so we can overlay
-      const parent = productImageEl.parentElement;
-      const parentPos = window.getComputedStyle(parent).position;
+      var parent = productImageEl.parentElement;
+      var parentPos = window.getComputedStyle(parent).position;
       if (parentPos === 'static') {
         parent.style.position = 'relative';
       }
@@ -352,7 +414,7 @@
       positionOverlay();
       window.addEventListener('resize', positionOverlay);
 
-      const observer = new MutationObserver(() => {
+      var observer = new MutationObserver(function() {
         setTimeout(positionOverlay, 100);
       });
       observer.observe(parent, { childList: true, subtree: true, attributes: true });
@@ -361,8 +423,8 @@
     function positionOverlay() {
       if (!overlayCanvas || !productImageEl) return;
 
-      const rect = productImageEl.getBoundingClientRect();
-      const parentRect = productImageEl.parentElement.getBoundingClientRect();
+      var rect = productImageEl.getBoundingClientRect();
+      var parentRect = productImageEl.parentElement.getBoundingClientRect();
 
       overlayCanvas.width = rect.width;
       overlayCanvas.height = rect.height;
@@ -375,9 +437,9 @@
     }
 
     // ─── Style buttons ───
-    document.querySelectorAll('.monogram-customizer__style-btn').forEach(btn => {
+    document.querySelectorAll('.monogram-customizer__style-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        document.querySelectorAll('.monogram-customizer__style-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.monogram-customizer__style-btn').forEach(function(b) { b.classList.remove('active'); });
         this.classList.add('active');
         currentStyle = this.dataset.style;
         renderPreview();
@@ -386,19 +448,18 @@
 
     // ─── Color swatches ───
     colorPicker.addEventListener('click', function(e) {
-      const swatch = e.target.closest('.monogram-customizer__color-swatch');
+      var swatch = e.target.closest('.monogram-customizer__color-swatch');
       if (!swatch) return;
-      document.querySelectorAll('.monogram-customizer__color-swatch').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.monogram-customizer__color-swatch').forEach(function(s) { s.classList.remove('active'); });
       swatch.classList.add('active');
       currentColor = swatch.dataset.color;
-      currentColorName = swatch.dataset.name;
-      colorNameEl.textContent = currentColorName;
+      colorNameEl.textContent = swatch.dataset.name;
       renderPreview();
     });
 
     // ─── Text input ───
     textInput.addEventListener('input', function() {
-      let val = this.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 3);
+      var val = this.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 3);
       this.value = val;
       currentText = val;
       charCount.textContent = val.length;
@@ -412,175 +473,23 @@
       renderPreview();
     });
 
-    // ─── Intercept add-to-cart ───
-    // We look for the product form and intercept its submit event.
-    // Instead of letting the form submit normally, we use the Cart AJAX API
-    // to add the item with our custom line item properties.
-    function interceptAddToCart() {
-      // Find the product form
-      const form = document.querySelector('form[action*="/cart/add"]')
-        || document.querySelector('product-form form')
-        || document.querySelector('product-form')?.querySelector('form');
-
-      if (!form) {
-        console.warn('Monogram Customizer: Could not find product form');
-        return;
-      }
-
-      // Also intercept the "Add to cart" button click directly
-      // Dawn theme uses product-form web component which may not fire a standard submit
-      const addToCartBtn = form.querySelector('[type="submit"]')
-        || form.querySelector('button[name="add"]')
-        || form.querySelector('.product-form__submit');
-
-      function handleAddToCart(e) {
-        // Only intercept if there's monogram text
-        if (currentText.length === 0) {
-          e.preventDefault();
-          e.stopPropagation();
-          errorEl.classList.add('visible');
-          textInput.focus();
-          return;
-        }
-
-        // Prevent double-submit
-        if (isAddingToCart) {
-          e.preventDefault();
-          e.stopPropagation();
-          return;
-        }
-
-        e.preventDefault();
-        e.stopPropagation();
-        isAddingToCart = true;
-        loadingEl.classList.add('visible');
-
-        // Get the variant ID from the form
-        const formData = new FormData(form);
-        const variantId = formData.get('id')
-          || form.querySelector('[name="id"]')?.value
-          || form.querySelector('input[name="id"]')?.value;
-
-        if (!variantId) {
-          console.error('Monogram Customizer: Could not find variant ID');
-          isAddingToCart = false;
-          loadingEl.classList.remove('visible');
-          form.submit();
-          return;
-        }
-
-        // Build the preview image URL (app proxy path)
-        const previewImageUrl = buildPreviewImageUrl();
-
-        // Build properties
-        const properties = {
-          '_monogram_text': currentText,
-          '_monogram_style': currentStyle,
-          '_thread_color': currentColor,
-          'Monogram Preview': previewImageUrl
-        };
-
-        console.log('Monogram: Adding to cart with properties:', properties);
-
-        // Use Shopify Cart AJAX API
-        fetch('/cart/add.js', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: parseInt(variantId),
-            quantity: parseInt(formData.get('quantity') || '1'),
-            properties: properties
-          })
-        })
-        .then(function(resp) {
-          if (!resp.ok) {
-            return resp.text().then(function(t) { throw new Error(t); });
-          }
-          return resp.json();
-        })
-        .then(function(item) {
-          console.log('Monogram: Added to cart successfully:', item);
-
-          // Dispatch events for the theme to pick up
-          document.dispatchEvent(new CustomEvent('cart:refresh'));
-          document.dispatchEvent(new CustomEvent('cart:updated'));
-
-          // Try to trigger Dawn theme's cart drawer/notification
-          // Dawn uses fetch to /cart/add.js and then updates the cart drawer
-          // We need to fetch the cart drawer section and update it
-          var sections = 'cart-notification-product,cart-notification-button,cart-icon-bubble,cart-drawer';
-          fetch('/?sections=' + sections)
-            .then(function(r) { return r.json(); })
-            .then(function(sectionData) {
-              // Update each section in the DOM
-              Object.keys(sectionData).forEach(function(sectionId) {
-                var el = document.getElementById('shopify-section-' + sectionId);
-                if (el) {
-                  el.innerHTML = sectionData[sectionId];
-                }
-              });
-
-              // Try to open the cart drawer
-              var cartDrawer = document.querySelector('cart-drawer');
-              if (cartDrawer) {
-                var openBtn = cartDrawer.querySelector('#CartDrawer');
-                if (openBtn) {
-                  openBtn.classList.add('active');
-                  openBtn.setAttribute('open', '');
-                }
-                if (typeof cartDrawer.open === 'function') {
-                  cartDrawer.open();
-                }
-              }
-
-              // Try cart notification
-              var cartNotification = document.querySelector('cart-notification');
-              if (cartNotification && typeof cartNotification.open === 'function') {
-                cartNotification.open();
-              }
-            })
-            .catch(function() {
-              // If section rendering fails, just redirect to cart
-              window.location.href = '/cart';
-            });
-        })
-        .catch(function(err) {
-          console.error('Monogram: Cart add failed:', err);
-          // Fallback: redirect to cart page
-          window.location.href = '/cart';
-        })
-        .finally(function() {
-          isAddingToCart = false;
-          loadingEl.classList.remove('visible');
-        });
-      }
-
-      // Intercept form submit
-      form.addEventListener('submit', handleAddToCart, true);
-
-      // Also intercept the button click directly as a backup
-      if (addToCartBtn) {
-        addToCartBtn.addEventListener('click', handleAddToCart, true);
-      }
-    }
-
     // ─── Canvas preview rendering ───
     function renderPreview() {
       if (!overlayCanvas || !overlayCtx) return;
 
-      const w = overlayCanvas.width;
-      const h = overlayCanvas.height;
+      var w = overlayCanvas.width;
+      var h = overlayCanvas.height;
 
       overlayCtx.clearRect(0, 0, w, h);
 
       if (!currentText) return;
 
       // Position the monogram on the front of the hat
-      const centerX = w * 0.50;
-      const centerY = h * 0.42;
+      var centerX = w * 0.50;
+      var centerY = h * 0.42;
 
       // Scale font size relative to image size
-      const baseSize = Math.min(w, h) * 0.12;
+      var baseSize = Math.min(w, h) * 0.12;
 
       overlayCtx.fillStyle = currentColor;
       overlayCtx.textAlign = 'center';
@@ -600,8 +509,8 @@
           overlayCtx.font = 'bold ' + (baseSize * 1.3) + 'px "Montserrat", sans-serif';
           overlayCtx.fillText(currentText[1], centerX, centerY);
 
-          const sideSize = baseSize * 0.8;
-          const spacing = baseSize * 1.2;
+          var sideSize = baseSize * 0.8;
+          var spacing = baseSize * 1.2;
           overlayCtx.font = 'bold ' + sideSize + 'px "Montserrat", sans-serif';
           overlayCtx.fillText(currentText[0], centerX - spacing, centerY);
           overlayCtx.fillText(currentText[2], centerX + spacing, centerY);
@@ -619,29 +528,23 @@
     }
 
     // ─── Init ───
-    function waitAndInit() {
+    function initWhenReady() {
       if (document.fonts && document.fonts.ready) {
-        document.fonts.ready.then(() => {
-          setTimeout(function() {
-            initOverlay();
-            interceptAddToCart();
-          }, 500);
+        document.fonts.ready.then(function() {
+          setTimeout(initOverlay, 500);
         });
       } else {
-        setTimeout(function() {
-          initOverlay();
-          interceptAddToCart();
-        }, 1000);
+        setTimeout(initOverlay, 1000);
       }
     }
 
     if (document.readyState === 'complete') {
-      waitAndInit();
+      initWhenReady();
     } else {
-      window.addEventListener('load', waitAndInit);
+      window.addEventListener('load', initWhenReady);
     }
 
-    document.addEventListener('shopify:section:load', waitAndInit);
+    document.addEventListener('shopify:section:load', initWhenReady);
   })();
 </script>
 
