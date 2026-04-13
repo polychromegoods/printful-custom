@@ -526,10 +526,24 @@
               body.append('properties[_thread_color]', firstText.color);
             }
 
-            // Visible preview URL
+            // Hidden preview URL (for cart thumbnail swap via JS)
             var previewUrl = buildPreviewImageUrl();
             if (previewUrl) {
-              body.append('properties[Monogram Preview]', previewUrl);
+              body.append('properties[_preview_image]', previewUrl);
+            }
+
+            // Visible personalization summary for checkout/order confirmation
+            var summaryParts = [];
+            layerIds.forEach(function(lid) {
+              var ls = layerStates[lid];
+              if (ls.type === 'text' && ls.text) {
+                summaryParts.push(ls.text + ' (' + ls.font + ', ' + ls.color + ')');
+              } else if (ls.type === 'image' && ls.imageDataUrl) {
+                summaryParts.push('Custom Image');
+              }
+            });
+            if (summaryParts.length > 0) {
+              body.append('properties[Personalization]', summaryParts.join('; '));
             }
 
             console.log('[Customizer] Injected properties into FormData cart/add.js');
@@ -567,7 +581,20 @@
 
             var previewUrl2 = buildPreviewImageUrl();
             if (previewUrl2) {
-              parsed.properties['Monogram Preview'] = previewUrl2;
+              parsed.properties['_preview_image'] = previewUrl2;
+            }
+
+            var summaryParts2 = [];
+            layerIds.forEach(function(lid) {
+              var ls = layerStates[lid];
+              if (ls.type === 'text' && ls.text) {
+                summaryParts2.push(ls.text + ' (' + ls.font + ', ' + ls.color + ')');
+              } else if (ls.type === 'image' && ls.imageDataUrl) {
+                summaryParts2.push('Custom Image');
+              }
+            });
+            if (summaryParts2.length > 0) {
+              parsed.properties['Personalization'] = summaryParts2.join('; ');
             }
 
             options.body = JSON.stringify(parsed);

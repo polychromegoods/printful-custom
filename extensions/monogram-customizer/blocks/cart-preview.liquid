@@ -26,7 +26,7 @@
 
           cart.items.forEach(function(item, index) {
             // Check for our visible preview image property
-            var previewUrl = item.properties && item.properties['Monogram Preview'];
+            var previewUrl = item.properties && (item.properties['_preview_image'] || item.properties['Monogram Preview']);
             if (!previewUrl) return;
 
             // Find all cart item containers in the DOM
