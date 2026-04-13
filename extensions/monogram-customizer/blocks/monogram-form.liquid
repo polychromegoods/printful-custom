@@ -257,7 +257,8 @@
     // ─── MONKEY-PATCH window.fetch ───
     // Dawn theme's product-form web component uses fetch() to POST to /cart/add.js.
     // We intercept that call and inject our monogram properties into the request body.
-    // This is the most reliable way because it works no matter how the theme adds to cart.
+    // IMPORTANT: We must preserve ALL original fields (especially 'sections' which Dawn
+    // uses to render the cart drawer). If we drop 'sections', the cart drawer crashes.
     const originalFetch = window.fetch;
     window.fetch = function(url, options) {
       // Check if this is a cart/add.js call
@@ -267,44 +268,29 @@
         if (currentText && currentText.length > 0) {
           try {
             var body = options.body;
-            var parsed = null;
+            var isFormData = body instanceof FormData;
 
-            if (typeof body === 'string') {
-              parsed = JSON.parse(body);
-            } else if (body instanceof FormData) {
-              // Convert FormData to JSON-based request
-              parsed = {};
-              parsed.id = body.get('id');
-              parsed.quantity = body.get('quantity') || 1;
-              // Remove body, we'll replace it
-            }
+            if (isFormData) {
+              // Dawn sends FormData. We inject our properties as FormData entries.
+              // This preserves the 'sections' and 'sections_url' fields that Dawn needs.
+              body.append('properties[_monogram_text]', currentText);
+              body.append('properties[_monogram_style]', currentStyle);
+              body.append('properties[_thread_color]', currentColor);
+              body.append('properties[Monogram Preview]', buildPreviewImageUrl());
 
-            if (parsed) {
-              // Ensure properties object exists
-              if (!parsed.properties) {
-                parsed.properties = {};
-              }
-
-              // Inject our monogram properties
+              console.log('[Monogram] Injected properties into FormData cart/add.js');
+              // options.body is already the modified FormData reference
+            } else if (typeof body === 'string') {
+              // JSON body — parse, inject, re-stringify
+              var parsed = JSON.parse(body);
+              if (!parsed.properties) parsed.properties = {};
               parsed.properties['_monogram_text'] = currentText;
               parsed.properties['_monogram_style'] = currentStyle;
               parsed.properties['_thread_color'] = currentColor;
               parsed.properties['Monogram Preview'] = buildPreviewImageUrl();
 
-              console.log('[Monogram] Injected properties into cart/add.js:', parsed.properties);
-
-              // Replace the body with our modified version
+              console.log('[Monogram] Injected properties into JSON cart/add.js:', parsed.properties);
               options.body = JSON.stringify(parsed);
-
-              // Ensure Content-Type is JSON
-              if (!options.headers) {
-                options.headers = {};
-              }
-              if (options.headers instanceof Headers) {
-                options.headers.set('Content-Type', 'application/json');
-              } else {
-                options.headers['Content-Type'] = 'application/json';
-              }
             }
           } catch (e) {
             console.warn('[Monogram] Could not inject properties into fetch body:', e);
