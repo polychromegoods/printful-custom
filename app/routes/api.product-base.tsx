@@ -7,7 +7,7 @@ import {
 } from "../config/product-bases";
 
 /**
- * GET /api/product-base?product_id=<shopify_product_id>&variant_id=<shopify_variant_id>
+ * GET /api/product-base?product_id=<shopify_product_id>&variant_id=<shopify_variant_id>&handle=<product_handle>
  *
  * Returns the full product template configuration for the storefront extension:
  * - Product base info (name, category, technique)
@@ -17,7 +17,7 @@ import {
  * - Mockup images per variant
  *
  * Called via Shopify App Proxy at:
- *   /apps/api/product-base?product_id=123&variant_id=456
+ *   /apps/api/product-base?product_id=123&variant_id=456&handle=hat-2
  */
 
 /**
@@ -36,6 +36,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const productId = url.searchParams.get("product_id") || "";
   const variantId = url.searchParams.get("variant_id") || "";
+  const handle = url.searchParams.get("handle") || "";
   const shop = url.searchParams.get("shop") || "";
 
   const headers = {
@@ -44,16 +45,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     "Cache-Control": "public, max-age=60",
   };
 
-  if (!productId) {
+  if (!productId && !handle) {
     return new Response(
-      JSON.stringify({ error: "Missing product_id" }),
+      JSON.stringify({ error: "Missing product_id or handle" }),
       { status: 400, headers }
     );
   }
 
   // Build both formats for flexible matching
-  const numericId = extractNumericId(productId);
-  const gidProductId = `gid://shopify/Product/${numericId}`;
+  const numericId = productId ? extractNumericId(productId) : "";
+  const gidProductId = numericId ? `gid://shopify/Product/${numericId}` : "";
 
   const gidVariantId = variantId
     ? `gid://shopify/ProductVariant/${extractNumericId(variantId)}`
@@ -68,7 +69,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     };
 
     // 1. Try GID match with shop filter
-    if (shop) {
+    if (shop && gidProductId) {
       template = await db.productTemplate.findFirst({
         where: { shopifyProductId: gidProductId, shop, isActive: true },
         include: includeRelations,
@@ -76,7 +77,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
 
     // 2. GID match without shop filter
-    if (!template) {
+    if (!template && gidProductId) {
       template = await db.productTemplate.findFirst({
         where: { shopifyProductId: gidProductId, isActive: true },
         include: includeRelations,
@@ -84,7 +85,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
 
     // 3. Plain numeric ID match (in case stored without GID prefix)
-    if (!template) {
+    if (!template && numericId) {
       template = await db.productTemplate.findFirst({
         where: { shopifyProductId: numericId, isActive: true },
         include: includeRelations,
@@ -92,17 +93,49 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
 
     // 4. Contains match on the numeric portion
-    if (!template) {
+    if (!template && numericId) {
       template = await db.productTemplate.findFirst({
         where: { shopifyProductId: { contains: numericId }, isActive: true },
         include: includeRelations,
       });
     }
 
+    // 5. ★ HANDLE FALLBACK — the storefront legacy ID may differ from Admin GID
+    //    This is the most reliable fallback since handles are consistent across APIs
+    if (!template && handle) {
+      template = await db.productTemplate.findFirst({
+        where: { productHandle: handle, isActive: true },
+        include: includeRelations,
+      });
+      if (template) {
+        console.log(
+          `[API] Product matched by handle "${handle}" — stored GID: ${template.shopifyProductId}, requested ID: ${productId}`
+        );
+      }
+    }
+
+    // 6. Title-based fuzzy fallback (last resort)
+    if (!template && handle) {
+      // Convert handle to title-like string: "hat-2" → "Hat 2"
+      const titleGuess = handle
+        .split("-")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+      template = await db.productTemplate.findFirst({
+        where: { productTitle: titleGuess, isActive: true },
+        include: includeRelations,
+      });
+      if (template) {
+        console.log(
+          `[API] Product matched by title guess "${titleGuess}" — stored GID: ${template.shopifyProductId}`
+        );
+      }
+    }
+
     if (!template) {
       // Debug: list all templates so we can see what's actually stored
       const allTemplates = await db.productTemplate.findMany({
-        select: { id: true, shopifyProductId: true, productTitle: true, shop: true, isActive: true },
+        select: { id: true, shopifyProductId: true, productTitle: true, productHandle: true, shop: true, isActive: true },
         take: 20,
       });
       return new Response(
@@ -111,12 +144,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           debug: {
             searchedGid: gidProductId,
             searchedNumeric: numericId,
+            searchedHandle: handle,
             shop: shop || "(none)",
-            allTemplatesInDb: allTemplates.map(t => ({
+            allTemplatesInDb: allTemplates.map((t) => ({
               id: t.id,
               shopifyProductId: t.shopifyProductId,
               numericId: t.shopifyProductId.includes("/") ? t.shopifyProductId.split("/").pop() : t.shopifyProductId,
               productTitle: t.productTitle,
+              productHandle: t.productHandle,
               shop: t.shop,
               isActive: t.isActive,
             })),

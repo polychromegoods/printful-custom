@@ -504,6 +504,7 @@ export default function ProductBasesPage() {
 
   // Step 3: Configure layers
   const [layers, setLayers] = useState<any[]>([]);
+  const [previewVariantColor, setPreviewVariantColor] = useState("");
 
   // Step 4: Fonts, colors, variants
   const [enabledFontKeys, setEnabledFontKeys] = useState<string[]>(["script", "block"]);
@@ -877,6 +878,21 @@ export default function ProductBasesPage() {
     </BlockStack>
   );
 
+  // Derive the mockup URL for the layer editor based on selected preview variant color
+  const editorMockupUrl = (() => {
+    // If a preview variant color is selected and the registry has a mockup for it, use that
+    if (previewVariantColor && selectedBaseFromRegistry?.variantMockups) {
+      const url = selectedBaseFromRegistry.variantMockups[previewVariantColor];
+      if (url) return url;
+    }
+    // Otherwise fall back to editing template's mockup or default
+    if (editingTemplateId) {
+      const tmpl = templates.find((t) => t.id === editingTemplateId);
+      if (tmpl?.mockupImages?.[0]?.imageUrl) return tmpl.mockupImages[0].imageUrl;
+    }
+    return selectedBaseFromRegistry?.defaultMockupUrl || undefined;
+  })();
+
   const renderStep3 = () => (
     <BlockStack gap="400">
       <Text as="h2" variant="headingMd">Step 3: Visual Layer Editor</Text>
@@ -884,6 +900,27 @@ export default function ProductBasesPage() {
         Drag the print area to position it on the mockup. Add layers and drag them within the print area.
         Use the properties panel on the right to configure each layer.
       </Text>
+      {selectedBaseFromRegistry?.variantMockups && Object.keys(selectedBaseFromRegistry.variantMockups).length > 1 && (
+        <InlineStack gap="200" align="start" blockAlign="center">
+          <Text as="span" variant="bodyMd" fontWeight="semibold">Preview Color:</Text>
+          <select
+            value={previewVariantColor}
+            onChange={(e) => setPreviewVariantColor(e.target.value)}
+            style={{
+              padding: "6px 12px",
+              borderRadius: "8px",
+              border: "1px solid #ccc",
+              fontSize: "14px",
+              cursor: "pointer",
+            }}
+          >
+            <option value="">Default</option>
+            {Object.keys(selectedBaseFromRegistry.variantMockups).map((colorName) => (
+              <option key={colorName} value={colorName}>{colorName}</option>
+            ))}
+          </select>
+        </InlineStack>
+      )}
       <LayerEditor
         layers={layers as LayerData[]}
         onLayersChange={(newLayers) => setLayers(newLayers)}
@@ -897,12 +934,7 @@ export default function ProductBasesPage() {
         fonts={fonts.map((f) => ({ key: f.key, displayName: f.displayName }))}
         productCategory={selectedBase?.category}
         technique={selectedTechnique}
-        mockupImageUrl={
-          (editingTemplateId
-            ? templates.find((t) => t.id === editingTemplateId)?.mockupImages?.[0]?.imageUrl || selectedBaseFromRegistry?.defaultMockupUrl
-            : selectedBaseFromRegistry?.defaultMockupUrl
-          ) || undefined
-        }
+        mockupImageUrl={editorMockupUrl}
       />
     </BlockStack>
   );

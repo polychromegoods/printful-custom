@@ -86,12 +86,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let baseImageUrl: string | null = null;
   let printArea = { x: 25, y: 15, width: 50, height: 35 };
 
-  if (productId) {
+  const handle = url.searchParams.get("handle") || "";
+
+  if (productId || handle) {
     // Extract numeric ID for flexible matching
-    const numericProductId = productId.startsWith("gid://")
-      ? productId.split("/").pop()!
-      : productId;
-    const gidProductId = `gid://shopify/Product/${numericProductId}`;
+    const numericProductId = productId
+      ? (productId.startsWith("gid://") ? productId.split("/").pop()! : productId)
+      : "";
+    const gidProductId = numericProductId ? `gid://shopify/Product/${numericProductId}` : "";
     const gidVariantId = variantId
       ? `gid://shopify/ProductVariant/${variantId.startsWith("gid://") ? variantId.split("/").pop()! : variantId}`
       : null;
@@ -99,25 +101,32 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     try {
       // Try multiple ID formats for robust matching
       const includeOpts = { mockupImages: { orderBy: { sortOrder: "asc" } as const } };
-      let template = await db.productTemplate.findFirst({
+      let template = gidProductId ? await db.productTemplate.findFirst({
         where: { shopifyProductId: gidProductId, isActive: true, ...(shop ? { shop } : {}) },
         include: includeOpts,
-      });
-      if (!template) {
+      }) : null;
+      if (!template && gidProductId) {
         template = await db.productTemplate.findFirst({
           where: { shopifyProductId: gidProductId, isActive: true },
           include: includeOpts,
         });
       }
-      if (!template) {
+      if (!template && numericProductId) {
         template = await db.productTemplate.findFirst({
           where: { shopifyProductId: numericProductId, isActive: true },
           include: includeOpts,
         });
       }
-      if (!template) {
+      if (!template && numericProductId) {
         template = await db.productTemplate.findFirst({
           where: { shopifyProductId: { contains: numericProductId }, isActive: true },
+          include: includeOpts,
+        });
+      }
+      // Handle-based fallback (storefront legacy ID may differ from Admin GID)
+      if (!template && handle) {
+        template = await db.productTemplate.findFirst({
+          where: { productHandle: handle, isActive: true },
           include: includeOpts,
         });
       }
@@ -278,13 +287,14 @@ function drawTextInArea(
   const isScript = style === "script";
 
   if (isScript) {
-    const fontSize = Math.min(w * 0.5, h * 0.7);
+    const fontSize = Math.min(w * 0.5, h * 0.85);
     ctx.font = `${Math.round(fontSize)}px ${fontFamily}`;
     ctx.fillText(text, centerX, centerY);
   } else if (text.length === 3 && style !== "sans") {
     // Traditional monogram layout: first-LAST(big)-middle
-    const bigSize = Math.min(w * 0.35, h * 0.7);
-    const smallSize = bigSize * 0.65;
+    const baseSize = Math.min(w * 0.5, h * 0.85);
+    const bigSize = baseSize * 1.35;
+    const smallSize = baseSize * 0.85;
     const spacing = w * 0.28;
 
     ctx.font = `bold ${Math.round(bigSize)}px ${fontFamily}`;
@@ -294,7 +304,7 @@ function drawTextInArea(
     ctx.fillText(text[0], centerX - spacing, centerY);
     ctx.fillText(text[2], centerX + spacing, centerY);
   } else {
-    const fontSize = Math.min(w * 0.4, h * 0.6);
+    const fontSize = Math.min(w * 0.5, h * 0.85);
     ctx.font = `bold ${Math.round(fontSize)}px ${fontFamily}`;
     ctx.fillText(text, centerX, centerY);
   }
