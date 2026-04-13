@@ -213,7 +213,7 @@ export const PRODUCT_BASES: ProductBase[] = [
         fileSizePx: { width: 1650, height: 600 },
         dpi: 300,
         supports3dPuff: true,
-        mockupPosition: { x: 20, y: 20, width: 60, height: 22 },
+        mockupPosition: { x: 20, y: 38, width: 60, height: 22 },
       },
       {
         placementKey: "embroidery_front_large",
@@ -223,7 +223,7 @@ export const PRODUCT_BASES: ProductBase[] = [
         fileSizePx: { width: 1650, height: 600 },
         dpi: 300,
         supports3dPuff: true,
-        mockupPosition: { x: 15, y: 15, width: 70, height: 30 },
+        mockupPosition: { x: 15, y: 33, width: 70, height: 30 },
       },
     ],
     variants: [
