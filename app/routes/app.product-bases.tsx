@@ -27,9 +27,7 @@ import {
   Select,
   ChoiceList,
   Checkbox,
-  RangeSlider,
   Tag,
-  InlineGrid,
   Spinner,
   DropZone,
 } from "@shopify/polaris";
@@ -940,59 +938,6 @@ export default function ProductBasesPage() {
     </BlockStack>
   );
 
-  // Step 5 is now merged into Step 3 (Visual Layer Editor)
-  // Kept as a lightweight summary/fine-tune step
-  const renderStep5 = () => (
-    <BlockStack gap="400">
-      <Text as="h2" variant="headingMd">Step 5: Review Print Area & Layers</Text>
-      <Text as="p" variant="bodyMd" tone="subdued">
-        Fine-tune the print area position and review layer configuration.
-        You can go back to Step 3 to use the visual editor.
-      </Text>
-      <Banner tone="info">
-        <BlockStack gap="100">
-          <Text as="p" variant="bodyMd">
-            <strong>Print Area:</strong> X: {Math.round(printAreaX)}%, Y: {Math.round(printAreaY)}%, 
-            Width: {Math.round(printAreaWidth)}%, Height: {Math.round(printAreaHeight)}%
-          </Text>
-          <Text as="p" variant="bodyMd">
-            <strong>Layers:</strong> {layers.length} layer(s) — {layers.map((l: any) => l.label).join(", ")}
-          </Text>
-        </BlockStack>
-      </Banner>
-      <InlineGrid columns={2} gap="400">
-        <RangeSlider
-          label={`X Position: ${Math.round(printAreaX)}%`}
-          value={printAreaX}
-          min={0} max={80} step={1}
-          onChange={(val) => setPrintAreaX(val as number)}
-          output
-        />
-        <RangeSlider
-          label={`Y Position: ${Math.round(printAreaY)}%`}
-          value={printAreaY}
-          min={0} max={80} step={1}
-          onChange={(val) => setPrintAreaY(val as number)}
-          output
-        />
-        <RangeSlider
-          label={`Width: ${Math.round(printAreaWidth)}%`}
-          value={printAreaWidth}
-          min={10} max={100} step={1}
-          onChange={(val) => setPrintAreaWidth(val as number)}
-          output
-        />
-        <RangeSlider
-          label={`Height: ${Math.round(printAreaHeight)}%`}
-          value={printAreaHeight}
-          min={5} max={100} step={1}
-          onChange={(val) => setPrintAreaHeight(val as number)}
-          output
-        />
-      </InlineGrid>
-    </BlockStack>
-  );
-
   const handlePickProduct = useCallback(async () => {
     try {
       const selected = await shopify.resourcePicker({
@@ -1113,8 +1058,8 @@ export default function ProductBasesPage() {
     );
   };
 
-  const wizardSteps = [renderStep1, renderStep2, renderStep3, renderStep4, renderStep5, renderStep6, renderSummary];
-  const stepTitles = ["Product Base", "Technique", "Visual Editor", "Options", "Fine-Tune", "Shopify Link", "Review"];
+  const wizardSteps = [renderStep1, renderStep2, renderStep3, renderStep4, renderStep6, renderSummary];
+  const stepTitles = ["Product Base", "Technique", "Visual Editor", "Options", "Shopify Link", "Review"];
   const totalSteps = wizardSteps.length;
 
   const canAdvance = () => {
@@ -1123,9 +1068,8 @@ export default function ProductBasesPage() {
       case 2: return !!selectedTechnique && !!selectedPlacement;
       case 3: return layers.length > 0;
       case 4: return enabledFontKeys.length > 0;
-      case 5: return true;
-      case 6: return !!shopifyProductId && !!productTitle;
-      case 7: return true;
+      case 5: return !!shopifyProductId && !!productTitle;
+      case 6: return true;
       default: return false;
     }
   };
