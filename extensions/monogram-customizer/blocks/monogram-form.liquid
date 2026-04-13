@@ -1,47 +1,53 @@
 {% comment %}
-  Monogram Customizer Block
-  Renders a personalization form on the product page with:
-  - Text input (1-3 characters)
-  - Font style selector (script / block)
-  - Thread color picker (Printful's 15 embroidery colors)
-  - Live preview overlaid on the product image using real product base images
-  - Variant-aware: swaps base image when customer changes color variant
+  Product Customizer Block (Dynamic)
   
-  The block fetches product base configuration from the app's API,
-  which includes the base mockup image URL and print area position
-  configured by the merchant in the admin UI.
+  Fetches the product template configuration from the app API and
+  dynamically renders the appropriate customization controls:
+  - Text layers: input + font picker + color picker
+  - Image layers: file upload zone
+  - Fixed image layers: displayed but not editable
+  
+  The live preview overlays all layers on the product mockup image,
+  positioned according to the template's print area settings.
+  
+  Variant-aware: swaps mockup image when customer changes color variant.
 {% endcomment %}
 
 <style>
-  .monogram-customizer {
+  .pc-customizer {
     margin: 16px 0;
     padding: 20px;
     border: 1px solid #e5e5e5;
     border-radius: 8px;
     background: #fafafa;
-    font-family: inherit;
+    font-family: 'Avenir Next', -apple-system, BlinkMacSystemFont, sans-serif;
   }
-
-  .monogram-customizer__title {
+  .pc-customizer__title {
     font-size: 16px;
     font-weight: 600;
     margin-bottom: 16px;
     color: #1a1a1a;
   }
-
-  .monogram-customizer__field {
+  .pc-customizer__loading {
+    text-align: center;
+    padding: 20px;
+    color: #999;
+    font-size: 14px;
+  }
+  .pc-customizer__not-configured {
+    display: none;
+  }
+  .pc-customizer__field {
     margin-bottom: 16px;
   }
-
-  .monogram-customizer__label {
+  .pc-customizer__label {
     display: block;
     font-size: 13px;
     font-weight: 500;
     margin-bottom: 6px;
     color: #333;
   }
-
-  .monogram-customizer__input {
+  .pc-customizer__input {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid #ccc;
@@ -51,27 +57,26 @@
     text-transform: uppercase;
     letter-spacing: 4px;
     box-sizing: border-box;
+    font-family: inherit;
   }
-
-  .monogram-customizer__input:focus {
+  .pc-customizer__input:focus {
     outline: none;
     border-color: #333;
   }
-
-  .monogram-customizer__char-count {
+  .pc-customizer__char-count {
     font-size: 11px;
     color: #999;
     text-align: right;
     margin-top: 4px;
   }
-
-  .monogram-customizer__styles {
+  .pc-customizer__fonts {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
-
-  .monogram-customizer__style-btn {
+  .pc-customizer__font-btn {
     flex: 1;
+    min-width: 80px;
     padding: 10px;
     border: 2px solid #ddd;
     border-radius: 6px;
@@ -80,86 +85,87 @@
     text-align: center;
     transition: all 0.2s;
   }
-
-  .monogram-customizer__style-btn:hover {
+  .pc-customizer__font-btn:hover {
     border-color: #999;
   }
-
-  .monogram-customizer__style-btn.active {
+  .pc-customizer__font-btn.active {
     border-color: #333;
     background: #f5f5f5;
   }
-
-  .monogram-customizer__style-label {
-    display: block;
-    font-size: 12px;
-    font-weight: 500;
-    margin-top: 4px;
-  }
-
-  .monogram-customizer__style-preview {
+  .pc-customizer__font-preview {
     font-size: 20px;
     line-height: 1.2;
+    display: block;
   }
-
-  .monogram-customizer__style-btn[data-style="script"] .monogram-customizer__style-preview {
-    font-family: 'Great Vibes', cursive, serif;
-    font-style: italic;
+  .pc-customizer__font-name {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    margin-top: 4px;
+    font-family: 'Avenir Next', sans-serif;
   }
-
-  .monogram-customizer__style-btn[data-style="block"] .monogram-customizer__style-preview {
-    font-family: 'Montserrat', sans-serif;
-    font-weight: 700;
-    letter-spacing: 3px;
-  }
-
-  .monogram-customizer__colors {
+  .pc-customizer__colors {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
   }
-
-  .monogram-customizer__color-swatch {
+  .pc-customizer__color-swatch {
     width: 28px;
     height: 28px;
     border-radius: 50%;
     border: 2px solid transparent;
     cursor: pointer;
     transition: all 0.2s;
-    position: relative;
   }
-
-  .monogram-customizer__color-swatch:hover {
+  .pc-customizer__color-swatch:hover {
     transform: scale(1.15);
   }
-
-  .monogram-customizer__color-swatch.active {
+  .pc-customizer__color-swatch.active {
     border-color: #333;
     box-shadow: 0 0 0 2px white, 0 0 0 4px #333;
   }
-
-  .monogram-customizer__color-swatch[data-color="#FFFFFF"] {
+  .pc-customizer__color-swatch[data-hex="#FFFFFF"],
+  .pc-customizer__color-swatch[data-hex="#ffffff"] {
     border-color: #ddd;
   }
-
-  .monogram-customizer__color-name {
+  .pc-customizer__color-name {
     font-size: 11px;
     color: #666;
     margin-top: 6px;
   }
-
-  .monogram-customizer__error {
-    color: #cc0000;
-    font-size: 12px;
-    margin-top: 4px;
+  .pc-customizer__upload-zone {
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: white;
+  }
+  .pc-customizer__upload-zone:hover {
+    border-color: #999;
+    background: #f9f9f9;
+  }
+  .pc-customizer__upload-zone.has-file {
+    border-color: #333;
+    border-style: solid;
+  }
+  .pc-customizer__upload-text {
+    font-size: 13px;
+    color: #666;
+  }
+  .pc-customizer__upload-preview {
+    max-width: 120px;
+    max-height: 120px;
+    margin: 8px auto;
     display: none;
   }
-
-  .monogram-customizer__error.visible {
+  .pc-customizer__upload-preview.visible {
     display: block;
   }
-
-  /* Overlay canvas on product image */
+  .pc-customizer__upload-input {
+    display: none;
+  }
   .monogram-overlay-canvas {
     position: absolute;
     pointer-events: none;
@@ -167,508 +173,686 @@
   }
 </style>
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Montserrat:wght@700&display=swap" rel="stylesheet">
-
-<div class="monogram-customizer" id="monogram-customizer">
-  <div class="monogram-customizer__title">{{ block.settings.title }}</div>
-
-  <!-- Text Input -->
-  <div class="monogram-customizer__field">
-    <label class="monogram-customizer__label" for="monogram-text">Monogram Text (1-3 letters)</label>
-    <input
-      type="text"
-      id="monogram-text"
-      class="monogram-customizer__input"
-      maxlength="3"
-      placeholder="ABC"
-      autocomplete="off"
-    >
-    <div class="monogram-customizer__char-count"><span id="char-count">0</span>/3</div>
-    <div class="monogram-customizer__error" id="monogram-error">Please enter 1-3 letters for your monogram</div>
+<div class="pc-customizer" id="pc-customizer">
+  <div class="pc-customizer__title">{{ block.settings.title }}</div>
+  <div class="pc-customizer__loading" id="pc-loading">Loading customization options...</div>
+  <div class="pc-customizer__not-configured" id="pc-not-configured">
+    <p style="color:#999; font-size:13px;">Personalization is not yet configured for this product.</p>
   </div>
-
-  <!-- Font Style -->
-  <div class="monogram-customizer__field">
-    <label class="monogram-customizer__label">Font Style</label>
-    <div class="monogram-customizer__styles">
-      <button type="button" class="monogram-customizer__style-btn active" data-style="script">
-        <span class="monogram-customizer__style-preview">ABC</span>
-        <span class="monogram-customizer__style-label">Script</span>
-      </button>
-      <button type="button" class="monogram-customizer__style-btn" data-style="block">
-        <span class="monogram-customizer__style-preview">ABC</span>
-        <span class="monogram-customizer__style-label">Block</span>
-      </button>
-    </div>
-  </div>
-
-  <!-- Thread Color -->
-  <div class="monogram-customizer__field">
-    <label class="monogram-customizer__label">Thread Color</label>
-    <div class="monogram-customizer__colors" id="color-picker">
-      {% assign colors = "#FFFFFF,White|#000000,Black|#96A1A8,Grey|#A67843,Brown|#FFCC00,Gold|#E8D075,Cream|#CC3333,Red|#CC6699,Pink|#800020,Maroon|#FF6633,Orange|#3399FF,Royal Blue|#003366,Navy|#336633,Forest Green|#99CCCC,Light Blue|#800080,Purple" | split: "|" %}
-      {% for color_pair in colors %}
-        {% assign parts = color_pair | split: "," %}
-        {% assign hex = parts[0] %}
-        {% assign name = parts[1] %}
-        <div
-          class="monogram-customizer__color-swatch{% if hex == '#000000' %} active{% endif %}"
-          data-color="{{ hex }}"
-          data-name="{{ name }}"
-          style="background-color: {{ hex }};"
-          title="{{ name }}"
-          role="button"
-          tabindex="0"
-        ></div>
-      {% endfor %}
-    </div>
-    <div class="monogram-customizer__color-name" id="color-name">Black</div>
-  </div>
+  <div id="pc-layers-container" style="display:none;"></div>
 </div>
 
 <script>
-  (function() {
-    'use strict';
+(function() {
+  'use strict';
 
-    var textInput = document.getElementById('monogram-text');
-    var charCount = document.getElementById('char-count');
-    var errorEl = document.getElementById('monogram-error');
-    var colorPicker = document.getElementById('color-picker');
-    var colorNameEl = document.getElementById('color-name');
+  // ─── State ───
+  var templateConfig = null;
+  var layerStates = {}; // { layerId: { text, font, color, imageDataUrl } }
+  var overlayCanvas = null;
+  var overlayCtx = null;
+  var productImageEl = null;
+  var originalImageSrc = null;
+  var loadedFonts = {};
 
-    var currentStyle = 'script';
-    var currentColor = '#000000';
-    var currentText = '';
-    var overlayCanvas = null;
-    var overlayCtx = null;
-    var productImageEl = null;
+  var productId = '{{ product.id }}';
+  var currentVariantId = '{{ product.selected_or_first_available_variant.id }}';
 
-    // Product base config from API
-    var productBaseConfig = null;
-    var originalImageSrc = null; // Store original product image src
+  // ─── Fetch template config ───
+  function fetchTemplateConfig(variantId) {
+    var apiUrl = '/apps/api/product-base?product_id=' + productId;
+    if (variantId) apiUrl += '&variant_id=' + variantId;
 
-    // Get product and variant IDs from the page
-    var productId = '{{ product.id }}';
-    var currentVariantId = '{{ product.selected_or_first_available_variant.id }}';
+    fetch(apiUrl)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        console.log('[Customizer] Template config:', data);
+        document.getElementById('pc-loading').style.display = 'none';
 
-    // ─── Fetch product base config from the app proxy ───
-    function fetchProductBaseConfig(variantId) {
-      var apiUrl = '/apps/api/product-base?product_id=' + productId;
-      if (variantId) {
-        apiUrl += '&variant_id=' + variantId;
-      }
-
-      fetch(apiUrl)
-        .then(function(response) { return response.json(); })
-        .then(function(data) {
-          console.log('[Monogram] Product base config:', data);
-          if (data.found && data.productBase) {
-            productBaseConfig = data.productBase;
-            // If we have a base image, swap the product image
-            if (productBaseConfig.currentImage && productImageEl) {
-              swapProductImage(productBaseConfig.currentImage);
-            }
-            renderPreview();
-          }
-        })
-        .catch(function(err) {
-          console.warn('[Monogram] Could not fetch product base config:', err);
-        });
-    }
-
-    // ─── Swap the main product image with the base mockup ───
-    function swapProductImage(imageUrl) {
-      if (!productImageEl) return;
-      // Store original src on first swap
-      if (!originalImageSrc) {
-        originalImageSrc = productImageEl.src;
-      }
-      productImageEl.src = imageUrl;
-      // Also update srcset if present
-      if (productImageEl.srcset) {
-        productImageEl.srcset = imageUrl;
-      }
-      console.log('[Monogram] Swapped product image to base:', imageUrl);
-    }
-
-    // ─── Listen for variant changes ───
-    // Dawn theme dispatches a 'variant:change' or updates the URL.
-    // We listen for multiple signals to catch variant changes.
-    function setupVariantListener() {
-      // Method 1: Listen for variant change events (Dawn 2.0+)
-      document.addEventListener('variant:change', function(e) {
-        var detail = e.detail || {};
-        var newVariantId = detail.variant ? detail.variant.id : null;
-        if (newVariantId) {
-          handleVariantChange(String(newVariantId));
+        if (!data.found || !data.template) {
+          document.getElementById('pc-not-configured').style.display = 'block';
+          return;
         }
+
+        templateConfig = data.template;
+        loadGoogleFonts(templateConfig.fonts || []);
+        buildUI();
+        initOverlay();
+        setupVariantListener();
+
+        // Swap to mockup image if available
+        if (templateConfig.currentMockupUrl && productImageEl) {
+          swapProductImage(templateConfig.currentMockupUrl);
+        }
+      })
+      .catch(function(err) {
+        console.warn('[Customizer] Failed to fetch config:', err);
+        document.getElementById('pc-loading').style.display = 'none';
+        document.getElementById('pc-not-configured').style.display = 'block';
       });
+  }
 
-      // Method 2: Watch for URL changes (variant= parameter)
-      var lastUrl = window.location.href;
-      setInterval(function() {
-        if (window.location.href !== lastUrl) {
-          lastUrl = window.location.href;
-          var urlParams = new URLSearchParams(window.location.search);
-          var newVariantId = urlParams.get('variant');
-          if (newVariantId) {
-            handleVariantChange(newVariantId);
-          }
-        }
-      }, 500);
+  // ─── Load Google Fonts ───
+  function loadGoogleFonts(fonts) {
+    if (!fonts || fonts.length === 0) return;
+    var families = fonts
+      .filter(function(f) { return f.googleFontName; })
+      .map(function(f) { return f.googleFontName.replace(/ /g, '+'); });
+    if (families.length === 0) return;
 
-      // Method 3: Watch for changes to variant radio/select inputs
-      document.querySelectorAll('input[name="id"], select[name="id"]').forEach(function(el) {
-        el.addEventListener('change', function() {
-          handleVariantChange(this.value);
-        });
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=' +
+      families.join('&family=') + '&display=swap';
+    document.head.appendChild(link);
+  }
+
+  // ─── Build dynamic UI from template layers ───
+  function buildUI() {
+    var container = document.getElementById('pc-layers-container');
+    container.innerHTML = '';
+    container.style.display = 'block';
+
+    var layers = templateConfig.layers || [];
+    layers.forEach(function(layer) {
+      if (!layer.customerEditable) return;
+
+      // Initialize layer state
+      layerStates[layer.id] = {
+        type: layer.type,
+        text: '',
+        font: layer.defaultFont || (layer.fonts && layer.fonts[0] ? layer.fonts[0].key : 'script'),
+        color: layer.defaultColor || '#000000',
+        imageDataUrl: null,
+        label: layer.label,
+        position: layer.position,
+        maxChars: layer.maxChars,
+      };
+
+      if (layer.type === 'text') {
+        buildTextLayer(container, layer);
+      } else if (layer.type === 'image') {
+        buildImageLayer(container, layer);
+      }
+    });
+  }
+
+  // ─── Build text layer UI ───
+  function buildTextLayer(container, layer) {
+    var maxChars = layer.maxChars || 20;
+    var fonts = layer.fonts || templateConfig.fonts || [];
+    var colors = templateConfig.threadColors || [];
+
+    var html = '<div class="pc-customizer__field">';
+    html += '<label class="pc-customizer__label">' + escapeHtml(layer.label) + ' (1-' + maxChars + ' characters)</label>';
+    html += '<input type="text" class="pc-customizer__input" data-layer-id="' + layer.id + '" data-type="text" maxlength="' + maxChars + '" placeholder="' + escapeHtml(layer.placeholder || 'ABC') + '" autocomplete="off">';
+    html += '<div class="pc-customizer__char-count"><span class="pc-char-count" data-layer-id="' + layer.id + '">0</span>/' + maxChars + '</div>';
+    html += '</div>';
+
+    // Font picker
+    if (fonts.length > 1) {
+      html += '<div class="pc-customizer__field">';
+      html += '<label class="pc-customizer__label">Font Style</label>';
+      html += '<div class="pc-customizer__fonts" data-layer-id="' + layer.id + '">';
+      fonts.forEach(function(font, idx) {
+        var isActive = (font.key === (layer.defaultFont || fonts[0].key)) ? ' active' : '';
+        html += '<button type="button" class="pc-customizer__font-btn' + isActive + '" data-font-key="' + font.key + '" data-layer-id="' + layer.id + '">';
+        html += '<span class="pc-customizer__font-preview" style="font-family: ' + font.cssFontFamily + ';">ABC</span>';
+        html += '<span class="pc-customizer__font-name">' + escapeHtml(font.displayName) + '</span>';
+        html += '</button>';
       });
+      html += '</div></div>';
+    }
 
-      // Method 4: Watch for fieldset/variant-radios changes (Dawn theme)
-      document.querySelectorAll('variant-radios, variant-selects').forEach(function(el) {
-        var observer = new MutationObserver(function() {
-          // Find the currently selected variant input
-          var selectedInput = el.querySelector('input[name="id"]:checked') || el.querySelector('select[name="id"]');
-          if (selectedInput) {
-            handleVariantChange(selectedInput.value);
-          }
-        });
-        observer.observe(el, { subtree: true, attributes: true, childList: true });
+    // Color picker (thread colors for embroidery, or custom)
+    if (colors.length > 0) {
+      html += '<div class="pc-customizer__field">';
+      html += '<label class="pc-customizer__label">Thread Color</label>';
+      html += '<div class="pc-customizer__colors" data-layer-id="' + layer.id + '">';
+      colors.forEach(function(color, idx) {
+        var isActive = (idx === 0 || color.hex === layer.defaultColor) ? ' active' : '';
+        if (isActive && idx === 0 && !layer.defaultColor) {
+          // Set default color to first color
+          layerStates[layer.id].color = color.hex;
+        }
+        if (color.hex === layer.defaultColor) {
+          layerStates[layer.id].color = color.hex;
+        }
+        html += '<div class="pc-customizer__color-swatch' + isActive + '" data-hex="' + color.hex + '" data-name="' + escapeHtml(color.name) + '" data-layer-id="' + layer.id + '" style="background-color: ' + color.hex + ';" title="' + escapeHtml(color.name) + '" role="button" tabindex="0"></div>';
+      });
+      html += '</div>';
+      var defaultColorName = colors[0] ? colors[0].name : '';
+      if (layer.defaultColor) {
+        var dc = colors.find(function(c) { return c.hex === layer.defaultColor; });
+        if (dc) defaultColorName = dc.name;
+      }
+      html += '<div class="pc-customizer__color-name" data-layer-id="' + layer.id + '">' + escapeHtml(defaultColorName) + '</div>';
+      html += '</div>';
+    }
+
+    container.insertAdjacentHTML('beforeend', html);
+
+    // Bind events after DOM insertion
+    setTimeout(function() {
+      bindTextLayerEvents(layer);
+    }, 0);
+  }
+
+  // ─── Build image upload layer UI ───
+  function buildImageLayer(container, layer) {
+    var acceptTypes = (layer.acceptedFileTypes || ['image/png', 'image/jpeg']).join(',');
+    var maxMb = layer.maxFileSizeMb || 10;
+
+    var html = '<div class="pc-customizer__field">';
+    html += '<label class="pc-customizer__label">' + escapeHtml(layer.label) + '</label>';
+    html += '<div class="pc-customizer__upload-zone" data-layer-id="' + layer.id + '">';
+    html += '<img class="pc-customizer__upload-preview" data-layer-id="' + layer.id + '" alt="Upload preview">';
+    html += '<div class="pc-customizer__upload-text">Click or drag to upload an image<br><small>Max ' + maxMb + 'MB, PNG or JPEG</small></div>';
+    html += '<input type="file" class="pc-customizer__upload-input" data-layer-id="' + layer.id + '" accept="' + acceptTypes + '">';
+    html += '</div></div>';
+
+    container.insertAdjacentHTML('beforeend', html);
+
+    setTimeout(function() {
+      bindImageLayerEvents(layer);
+    }, 0);
+  }
+
+  // ─── Bind text layer events ───
+  function bindTextLayerEvents(layer) {
+    var input = document.querySelector('.pc-customizer__input[data-layer-id="' + layer.id + '"]');
+    var charCountEl = document.querySelector('.pc-char-count[data-layer-id="' + layer.id + '"]');
+    var maxChars = layer.maxChars || 20;
+
+    if (input) {
+      input.addEventListener('input', function() {
+        var val = this.value.replace(/[^a-zA-Z0-9 ]/g, '').toUpperCase().slice(0, maxChars);
+        this.value = val;
+        layerStates[layer.id].text = val;
+        if (charCountEl) charCountEl.textContent = val.length;
+        renderPreview();
       });
     }
 
-    function handleVariantChange(newVariantId) {
-      if (newVariantId === currentVariantId) return;
-      currentVariantId = newVariantId;
-      console.log('[Monogram] Variant changed to:', newVariantId);
-
-      if (productBaseConfig && productBaseConfig.variantImages) {
-        // Check if we have a base image for this variant
-        var variantImage = productBaseConfig.variantImages[newVariantId];
-        if (variantImage) {
-          swapProductImage(variantImage);
-        } else if (productBaseConfig.defaultImage) {
-          swapProductImage(productBaseConfig.defaultImage);
-        }
-      }
-
-      renderPreview();
-    }
-
-    // ─── Build the app proxy preview image URL ───
-    function buildPreviewImageUrl() {
-      if (!currentText) return '';
-      var url = '/apps/api/preview?text=' + encodeURIComponent(currentText)
-        + '&style=' + encodeURIComponent(currentStyle)
-        + '&color=' + encodeURIComponent(currentColor)
-        + '&product_id=' + encodeURIComponent(productId)
-        + '&variant_id=' + encodeURIComponent(currentVariantId)
-        + '&format=image';
-      return url;
-    }
-
-    // ─── MONKEY-PATCH window.fetch ───
-    var originalFetch = window.fetch;
-    window.fetch = function(url, options) {
-      var urlStr = (typeof url === 'string') ? url : (url && url.url ? url.url : '');
-      if (urlStr.indexOf('/cart/add') !== -1 && options && options.method && options.method.toUpperCase() === 'POST') {
-        if (currentText && currentText.length > 0) {
-          try {
-            var body = options.body;
-            if (body instanceof FormData) {
-              body.append('properties[_monogram_text]', currentText);
-              body.append('properties[_monogram_style]', currentStyle);
-              body.append('properties[_thread_color]', currentColor);
-              body.append('properties[Monogram Preview]', buildPreviewImageUrl());
-              console.log('[Monogram] Injected properties into FormData cart/add.js');
-            } else if (typeof body === 'string') {
-              var parsed = JSON.parse(body);
-              if (!parsed.properties) parsed.properties = {};
-              parsed.properties['_monogram_text'] = currentText;
-              parsed.properties['_monogram_style'] = currentStyle;
-              parsed.properties['_thread_color'] = currentColor;
-              parsed.properties['Monogram Preview'] = buildPreviewImageUrl();
-              console.log('[Monogram] Injected properties into JSON cart/add.js:', parsed.properties);
-              options.body = JSON.stringify(parsed);
-            }
-          } catch (e) {
-            console.warn('[Monogram] Could not inject properties into fetch body:', e);
-          }
-        }
-      }
-      return originalFetch.apply(this, arguments);
-    };
-
-    // ─── Also patch XMLHttpRequest for older themes ───
-    var origXHROpen = XMLHttpRequest.prototype.open;
-    var origXHRSend = XMLHttpRequest.prototype.send;
-
-    XMLHttpRequest.prototype.open = function(method, url) {
-      this._monogramUrl = url;
-      this._monogramMethod = method;
-      return origXHROpen.apply(this, arguments);
-    };
-
-    XMLHttpRequest.prototype.send = function(body) {
-      if (this._monogramUrl && this._monogramUrl.indexOf('/cart/add') !== -1
-          && this._monogramMethod && this._monogramMethod.toUpperCase() === 'POST'
-          && currentText && currentText.length > 0) {
-        try {
-          var parsed = null;
-          if (typeof body === 'string') {
-            parsed = JSON.parse(body);
-          }
-          if (parsed) {
-            if (!parsed.properties) parsed.properties = {};
-            parsed.properties['_monogram_text'] = currentText;
-            parsed.properties['_monogram_style'] = currentStyle;
-            parsed.properties['_thread_color'] = currentColor;
-            parsed.properties['Monogram Preview'] = buildPreviewImageUrl();
-            console.log('[Monogram] Injected properties into XHR cart/add:', parsed.properties);
-            this.setRequestHeader('Content-Type', 'application/json');
-            return origXHRSend.call(this, JSON.stringify(parsed));
-          }
-        } catch (e) {
-          console.warn('[Monogram] Could not inject properties into XHR body:', e);
-        }
-      }
-      return origXHRSend.apply(this, arguments);
-    };
-
-    // ─── Find the product image and attach overlay canvas ───
-    function initOverlay() {
-      var selectors = [
-        '.product__media img',
-        '.product-media-container img',
-        '.product__media-item img',
-        '.product-featured-media img',
-        '.product__main-photos img',
-        '.product-single__photo img',
-        '.product__photo img',
-        'media-gallery img',
-        '.product--media img',
-        '[data-product-media-type="image"] img',
-        '.product-image-container img',
-        '.product__media-wrapper img',
-        '.product__media-list img:first-of-type',
-        'product-info media-gallery img',
-        '.media-gallery img'
-      ];
-
-      for (var i = 0; i < selectors.length; i++) {
-        var img = document.querySelector(selectors[i]);
-        if (img && img.naturalWidth > 100) {
-          productImageEl = img;
-          break;
-        }
-      }
-
-      // Fallback: find the largest product image on the page
-      if (!productImageEl) {
-        var allImgs = document.querySelectorAll('img');
-        var largest = null;
-        var largestArea = 0;
-        allImgs.forEach(function(img) {
-          var area = img.offsetWidth * img.offsetHeight;
-          if (area > largestArea && img.offsetWidth > 200) {
-            largest = img;
-            largestArea = area;
-          }
-        });
-        productImageEl = largest;
-      }
-
-      if (!productImageEl) {
-        console.warn('[Monogram] Could not find product image for overlay');
-        return;
-      }
-
-      // Store original image source
-      originalImageSrc = productImageEl.src;
-
-      // Make the image's parent position:relative so we can overlay
-      var parent = productImageEl.parentElement;
-      var parentPos = window.getComputedStyle(parent).position;
-      if (parentPos === 'static') {
-        parent.style.position = 'relative';
-      }
-
-      // Create overlay canvas
-      overlayCanvas = document.createElement('canvas');
-      overlayCanvas.className = 'monogram-overlay-canvas';
-      parent.appendChild(overlayCanvas);
-      overlayCtx = overlayCanvas.getContext('2d');
-
-      positionOverlay();
-      window.addEventListener('resize', positionOverlay);
-
-      var observer = new MutationObserver(function() {
-        setTimeout(positionOverlay, 100);
-      });
-      observer.observe(parent, { childList: true, subtree: true, attributes: true });
-
-      // Now fetch the product base config
-      fetchProductBaseConfig(currentVariantId);
-
-      // Setup variant change listener
-      setupVariantListener();
-    }
-
-    function positionOverlay() {
-      if (!overlayCanvas || !productImageEl) return;
-
-      var rect = productImageEl.getBoundingClientRect();
-      var parentRect = productImageEl.parentElement.getBoundingClientRect();
-
-      overlayCanvas.width = rect.width;
-      overlayCanvas.height = rect.height;
-      overlayCanvas.style.left = (rect.left - parentRect.left) + 'px';
-      overlayCanvas.style.top = (rect.top - parentRect.top) + 'px';
-      overlayCanvas.style.width = rect.width + 'px';
-      overlayCanvas.style.height = rect.height + 'px';
-
-      renderPreview();
-    }
-
-    // ─── Style buttons ───
-    document.querySelectorAll('.monogram-customizer__style-btn').forEach(function(btn) {
+    // Font buttons
+    document.querySelectorAll('.pc-customizer__font-btn[data-layer-id="' + layer.id + '"]').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        document.querySelectorAll('.monogram-customizer__style-btn').forEach(function(b) { b.classList.remove('active'); });
+        document.querySelectorAll('.pc-customizer__font-btn[data-layer-id="' + layer.id + '"]').forEach(function(b) { b.classList.remove('active'); });
         this.classList.add('active');
-        currentStyle = this.dataset.style;
+        layerStates[layer.id].font = this.dataset.fontKey;
         renderPreview();
       });
     });
 
-    // ─── Color swatches ───
-    colorPicker.addEventListener('click', function(e) {
-      var swatch = e.target.closest('.monogram-customizer__color-swatch');
-      if (!swatch) return;
-      document.querySelectorAll('.monogram-customizer__color-swatch').forEach(function(s) { s.classList.remove('active'); });
-      swatch.classList.add('active');
-      currentColor = swatch.dataset.color;
-      colorNameEl.textContent = swatch.dataset.name;
-      renderPreview();
+    // Color swatches
+    document.querySelectorAll('.pc-customizer__color-swatch[data-layer-id="' + layer.id + '"]').forEach(function(swatch) {
+      swatch.addEventListener('click', function() {
+        document.querySelectorAll('.pc-customizer__color-swatch[data-layer-id="' + layer.id + '"]').forEach(function(s) { s.classList.remove('active'); });
+        this.classList.add('active');
+        layerStates[layer.id].color = this.dataset.hex;
+        var nameEl = document.querySelector('.pc-customizer__color-name[data-layer-id="' + layer.id + '"]');
+        if (nameEl) nameEl.textContent = this.dataset.name;
+        renderPreview();
+      });
+    });
+  }
+
+  // ─── Bind image layer events ───
+  function bindImageLayerEvents(layer) {
+    var zone = document.querySelector('.pc-customizer__upload-zone[data-layer-id="' + layer.id + '"]');
+    var input = document.querySelector('.pc-customizer__upload-input[data-layer-id="' + layer.id + '"]');
+    var preview = document.querySelector('.pc-customizer__upload-preview[data-layer-id="' + layer.id + '"]');
+
+    if (!zone || !input) return;
+
+    zone.addEventListener('click', function() { input.click(); });
+
+    zone.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      zone.style.borderColor = '#333';
+    });
+    zone.addEventListener('dragleave', function() {
+      zone.style.borderColor = '#ccc';
+    });
+    zone.addEventListener('drop', function(e) {
+      e.preventDefault();
+      zone.style.borderColor = '#ccc';
+      if (e.dataTransfer.files.length > 0) {
+        handleImageFile(layer.id, e.dataTransfer.files[0], preview, zone);
+      }
     });
 
-    // ─── Text input ───
-    textInput.addEventListener('input', function() {
-      var val = this.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 3);
-      this.value = val;
-      currentText = val;
-      charCount.textContent = val.length;
-
-      if (val.length === 0) {
-        errorEl.classList.add('visible');
-      } else {
-        errorEl.classList.remove('visible');
+    input.addEventListener('change', function() {
+      if (this.files.length > 0) {
+        handleImageFile(layer.id, this.files[0], preview, zone);
       }
-
-      renderPreview();
     });
+  }
 
-    // ─── Canvas preview rendering ───
-    function renderPreview() {
-      if (!overlayCanvas || !overlayCtx) return;
+  function handleImageFile(layerId, file, previewEl, zoneEl) {
+    var maxMb = 10;
+    var layerConfig = (templateConfig.layers || []).find(function(l) { return l.id === layerId; });
+    if (layerConfig) maxMb = layerConfig.maxFileSizeMb || 10;
 
-      var w = overlayCanvas.width;
-      var h = overlayCanvas.height;
+    if (file.size > maxMb * 1024 * 1024) {
+      alert('File too large. Maximum size is ' + maxMb + 'MB.');
+      return;
+    }
 
-      overlayCtx.clearRect(0, 0, w, h);
-
-      if (!currentText) return;
-
-      // Use print area from product base config if available
-      var printArea;
-      if (productBaseConfig && productBaseConfig.printArea) {
-        printArea = productBaseConfig.printArea;
-      } else {
-        // Default print area (centered on hat front)
-        printArea = { x: 25, y: 15, width: 50, height: 35 };
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      layerStates[layerId].imageDataUrl = e.target.result;
+      if (previewEl) {
+        previewEl.src = e.target.result;
+        previewEl.classList.add('visible');
       }
+      if (zoneEl) zoneEl.classList.add('has-file');
+      renderPreview();
+    };
+    reader.readAsDataURL(file);
+  }
 
-      // Calculate print area in pixel coordinates
-      var paX = w * (printArea.x / 100);
-      var paY = h * (printArea.y / 100);
-      var paW = w * (printArea.width / 100);
-      var paH = h * (printArea.height / 100);
+  // ─── Build preview image URL for cart ───
+  function buildPreviewImageUrl() {
+    // Build URL from first text layer's state
+    var firstTextLayer = null;
+    var layerIds = Object.keys(layerStates);
+    for (var i = 0; i < layerIds.length; i++) {
+      if (layerStates[layerIds[i]].type === 'text' && layerStates[layerIds[i]].text) {
+        firstTextLayer = layerStates[layerIds[i]];
+        break;
+      }
+    }
+    if (!firstTextLayer) return '';
 
-      var centerX = paX + paW / 2;
-      var centerY = paY + paH / 2;
+    var url = '/apps/api/preview?text=' + encodeURIComponent(firstTextLayer.text)
+      + '&style=' + encodeURIComponent(firstTextLayer.font)
+      + '&color=' + encodeURIComponent(firstTextLayer.color)
+      + '&product_id=' + encodeURIComponent(productId)
+      + '&variant_id=' + encodeURIComponent(currentVariantId)
+      + '&format=image';
+    if (templateConfig) {
+      url += '&template_id=' + encodeURIComponent(templateConfig.id);
+    }
+    return url;
+  }
 
-      // Scale font size to fit within print area
-      var baseSize = Math.min(paW * 0.4, paH * 0.6);
-
-      overlayCtx.fillStyle = currentColor;
-      overlayCtx.textAlign = 'center';
-      overlayCtx.textBaseline = 'middle';
-
-      // Subtle text shadow for visibility
-      overlayCtx.shadowColor = 'rgba(0,0,0,0.15)';
-      overlayCtx.shadowBlur = 2;
-      overlayCtx.shadowOffsetX = 1;
-      overlayCtx.shadowOffsetY = 1;
-
-      if (currentStyle === 'script') {
-        var scriptSize = Math.min(paW * 0.5, paH * 0.7);
-        overlayCtx.font = scriptSize + 'px "Great Vibes", cursive';
-        overlayCtx.fillText(currentText, centerX, centerY);
-      } else {
-        if (currentText.length === 3) {
-          overlayCtx.font = 'bold ' + (baseSize * 1.3) + 'px "Montserrat", sans-serif';
-          overlayCtx.fillText(currentText[1], centerX, centerY);
-
-          var sideSize = baseSize * 0.8;
-          var spacing = paW * 0.25;
-          overlayCtx.font = 'bold ' + sideSize + 'px "Montserrat", sans-serif';
-          overlayCtx.fillText(currentText[0], centerX - spacing, centerY);
-          overlayCtx.fillText(currentText[2], centerX + spacing, centerY);
-        } else {
-          overlayCtx.font = 'bold ' + baseSize + 'px "Montserrat", sans-serif';
-          overlayCtx.fillText(currentText, centerX, centerY);
+  // ─── Monkey-patch fetch for cart/add.js ───
+  var originalFetch = window.fetch;
+  window.fetch = function(url, options) {
+    var urlStr = (typeof url === 'string') ? url : (url && url.url ? url.url : '');
+    if (urlStr.indexOf('/cart/add') !== -1 && options && options.method && options.method.toUpperCase() === 'POST') {
+      var hasPersonalization = false;
+      var layerIds = Object.keys(layerStates);
+      for (var i = 0; i < layerIds.length; i++) {
+        var ls = layerStates[layerIds[i]];
+        if ((ls.type === 'text' && ls.text) || (ls.type === 'image' && ls.imageDataUrl)) {
+          hasPersonalization = true;
+          break;
         }
       }
 
-      // Reset shadow
-      overlayCtx.shadowColor = 'transparent';
-      overlayCtx.shadowBlur = 0;
-      overlayCtx.shadowOffsetX = 0;
-      overlayCtx.shadowOffsetY = 0;
-    }
+      if (hasPersonalization) {
+        try {
+          var body = options.body;
+          if (body instanceof FormData) {
+            // Add personalization data as JSON blob
+            var persData = {};
+            layerIds.forEach(function(lid) {
+              var ls = layerStates[lid];
+              if (ls.type === 'text' && ls.text) {
+                persData[lid] = { type: 'text', text: ls.text, font: ls.font, color: ls.color, label: ls.label };
+              } else if (ls.type === 'image' && ls.imageDataUrl) {
+                persData[lid] = { type: 'image', hasImage: true, label: ls.label };
+              }
+            });
 
-    // ─── Init ───
-    function initWhenReady() {
-      if (document.fonts && document.fonts.ready) {
-        document.fonts.ready.then(function() {
-          setTimeout(initOverlay, 500);
-        });
-      } else {
-        setTimeout(initOverlay, 1000);
+            body.append('properties[_personalization_data]', JSON.stringify(persData));
+            body.append('properties[_template_id]', templateConfig ? templateConfig.id : '');
+            body.append('properties[_product_base]', templateConfig ? templateConfig.productBaseSlug : '');
+            body.append('properties[_technique]', templateConfig ? templateConfig.technique : '');
+            body.append('properties[_placement]', templateConfig ? templateConfig.placementKey : '');
+
+            // Legacy compat: also add monogram fields from first text layer
+            var firstText = null;
+            layerIds.forEach(function(lid) {
+              if (!firstText && layerStates[lid].type === 'text' && layerStates[lid].text) {
+                firstText = layerStates[lid];
+              }
+            });
+            if (firstText) {
+              body.append('properties[_monogram_text]', firstText.text);
+              body.append('properties[_monogram_style]', firstText.font);
+              body.append('properties[_thread_color]', firstText.color);
+            }
+
+            // Visible preview URL
+            var previewUrl = buildPreviewImageUrl();
+            if (previewUrl) {
+              body.append('properties[Monogram Preview]', previewUrl);
+            }
+
+            console.log('[Customizer] Injected properties into FormData cart/add.js');
+          } else if (typeof body === 'string') {
+            var parsed = JSON.parse(body);
+            if (!parsed.properties) parsed.properties = {};
+
+            var persData2 = {};
+            layerIds.forEach(function(lid) {
+              var ls = layerStates[lid];
+              if (ls.type === 'text' && ls.text) {
+                persData2[lid] = { type: 'text', text: ls.text, font: ls.font, color: ls.color, label: ls.label };
+              } else if (ls.type === 'image' && ls.imageDataUrl) {
+                persData2[lid] = { type: 'image', hasImage: true, label: ls.label };
+              }
+            });
+
+            parsed.properties['_personalization_data'] = JSON.stringify(persData2);
+            parsed.properties['_template_id'] = templateConfig ? templateConfig.id : '';
+            parsed.properties['_product_base'] = templateConfig ? templateConfig.productBaseSlug : '';
+            parsed.properties['_technique'] = templateConfig ? templateConfig.technique : '';
+            parsed.properties['_placement'] = templateConfig ? templateConfig.placementKey : '';
+
+            var firstText2 = null;
+            layerIds.forEach(function(lid) {
+              if (!firstText2 && layerStates[lid].type === 'text' && layerStates[lid].text) {
+                firstText2 = layerStates[lid];
+              }
+            });
+            if (firstText2) {
+              parsed.properties['_monogram_text'] = firstText2.text;
+              parsed.properties['_monogram_style'] = firstText2.font;
+              parsed.properties['_thread_color'] = firstText2.color;
+            }
+
+            var previewUrl2 = buildPreviewImageUrl();
+            if (previewUrl2) {
+              parsed.properties['Monogram Preview'] = previewUrl2;
+            }
+
+            options.body = JSON.stringify(parsed);
+            console.log('[Customizer] Injected properties into JSON cart/add.js');
+          }
+        } catch (e) {
+          console.warn('[Customizer] Could not inject properties:', e);
+        }
+      }
+    }
+    return originalFetch.apply(this, arguments);
+  };
+
+  // ─── Product image overlay ───
+  function swapProductImage(imageUrl) {
+    if (!productImageEl) return;
+    if (!originalImageSrc) originalImageSrc = productImageEl.src;
+    productImageEl.src = imageUrl;
+    if (productImageEl.srcset) productImageEl.srcset = imageUrl;
+    console.log('[Customizer] Swapped product image to mockup:', imageUrl);
+  }
+
+  function initOverlay() {
+    var selectors = [
+      '.product__media img',
+      '.product-media-container img',
+      '.product__media-item img',
+      '.product-featured-media img',
+      '.product__main-photos img',
+      '.product-single__photo img',
+      '.product__photo img',
+      'media-gallery img',
+      '.product--media img',
+      '[data-product-media-type="image"] img',
+      '.product-image-container img',
+      '.product__media-wrapper img',
+      '.product__media-list img:first-of-type',
+      'product-info media-gallery img',
+      '.media-gallery img'
+    ];
+
+    for (var i = 0; i < selectors.length; i++) {
+      var img = document.querySelector(selectors[i]);
+      if (img && img.naturalWidth > 100) {
+        productImageEl = img;
+        break;
       }
     }
 
-    if (document.readyState === 'complete') {
-      initWhenReady();
-    } else {
-      window.addEventListener('load', initWhenReady);
+    if (!productImageEl) {
+      var allImgs = document.querySelectorAll('img');
+      var largest = null;
+      var largestArea = 0;
+      allImgs.forEach(function(img) {
+        var area = img.offsetWidth * img.offsetHeight;
+        if (area > largestArea && img.offsetWidth > 200) {
+          largest = img;
+          largestArea = area;
+        }
+      });
+      productImageEl = largest;
     }
 
-    document.addEventListener('shopify:section:load', initWhenReady);
-  })();
+    if (!productImageEl) {
+      console.warn('[Customizer] Could not find product image for overlay');
+      return;
+    }
+
+    originalImageSrc = productImageEl.src;
+
+    var parent = productImageEl.parentElement;
+    if (window.getComputedStyle(parent).position === 'static') {
+      parent.style.position = 'relative';
+    }
+
+    overlayCanvas = document.createElement('canvas');
+    overlayCanvas.className = 'monogram-overlay-canvas';
+    parent.appendChild(overlayCanvas);
+    overlayCtx = overlayCanvas.getContext('2d');
+
+    positionOverlay();
+    window.addEventListener('resize', positionOverlay);
+
+    new MutationObserver(function() {
+      setTimeout(positionOverlay, 100);
+    }).observe(parent, { childList: true, subtree: true, attributes: true });
+
+    // Swap to mockup if available
+    if (templateConfig && templateConfig.currentMockupUrl) {
+      swapProductImage(templateConfig.currentMockupUrl);
+    }
+  }
+
+  function positionOverlay() {
+    if (!overlayCanvas || !productImageEl) return;
+    var rect = productImageEl.getBoundingClientRect();
+    var parentRect = productImageEl.parentElement.getBoundingClientRect();
+
+    overlayCanvas.width = rect.width;
+    overlayCanvas.height = rect.height;
+    overlayCanvas.style.left = (rect.left - parentRect.left) + 'px';
+    overlayCanvas.style.top = (rect.top - parentRect.top) + 'px';
+    overlayCanvas.style.width = rect.width + 'px';
+    overlayCanvas.style.height = rect.height + 'px';
+
+    renderPreview();
+  }
+
+  // ─── Canvas preview rendering ───
+  function renderPreview() {
+    if (!overlayCanvas || !overlayCtx) return;
+
+    var w = overlayCanvas.width;
+    var h = overlayCanvas.height;
+    overlayCtx.clearRect(0, 0, w, h);
+
+    if (!templateConfig) return;
+
+    var printArea = templateConfig.printArea || { x: 25, y: 15, width: 50, height: 35 };
+    var paX = w * (printArea.x / 100);
+    var paY = h * (printArea.y / 100);
+    var paW = w * (printArea.width / 100);
+    var paH = h * (printArea.height / 100);
+
+    // Render each layer
+    var layerIds = Object.keys(layerStates);
+    layerIds.forEach(function(lid) {
+      var ls = layerStates[lid];
+      if (!ls) return;
+
+      // Calculate layer position within print area
+      var pos = ls.position || { x: 10, y: 10, width: 80, height: 80 };
+      var lx = paX + paW * (pos.x / 100);
+      var ly = paY + paH * (pos.y / 100);
+      var lw = paW * (pos.width / 100);
+      var lh = paH * (pos.height / 100);
+
+      if (ls.type === 'text' && ls.text) {
+        renderTextLayer(ls, lx, ly, lw, lh);
+      } else if (ls.type === 'image' && ls.imageDataUrl) {
+        renderImageLayer(ls, lx, ly, lw, lh);
+      }
+    });
+  }
+
+  function renderTextLayer(ls, x, y, w, h) {
+    var centerX = x + w / 2;
+    var centerY = y + h / 2;
+
+    // Find the font config
+    var fontConfig = null;
+    if (templateConfig && templateConfig.fonts) {
+      fontConfig = templateConfig.fonts.find(function(f) { return f.key === ls.font; });
+    }
+    var fontFamily = fontConfig ? fontConfig.cssFontFamily : "'Montserrat', sans-serif";
+
+    overlayCtx.fillStyle = ls.color;
+    overlayCtx.textAlign = 'center';
+    overlayCtx.textBaseline = 'middle';
+    overlayCtx.shadowColor = 'rgba(0,0,0,0.15)';
+    overlayCtx.shadowBlur = 2;
+    overlayCtx.shadowOffsetX = 1;
+    overlayCtx.shadowOffsetY = 1;
+
+    var fontSize = Math.min(w * 0.4, h * 0.7);
+
+    // For monogram-style (3 chars, middle larger) in block fonts
+    if (ls.text.length === 3 && ls.font !== 'script' && ls.font !== 'monogram_classic') {
+      overlayCtx.font = 'bold ' + (fontSize * 1.3) + 'px ' + fontFamily;
+      overlayCtx.fillText(ls.text[1], centerX, centerY);
+
+      var sideSize = fontSize * 0.8;
+      var spacing = w * 0.25;
+      overlayCtx.font = 'bold ' + sideSize + 'px ' + fontFamily;
+      overlayCtx.fillText(ls.text[0], centerX - spacing, centerY);
+      overlayCtx.fillText(ls.text[2], centerX + spacing, centerY);
+    } else {
+      overlayCtx.font = fontSize + 'px ' + fontFamily;
+      overlayCtx.fillText(ls.text, centerX, centerY);
+    }
+
+    // Reset shadow
+    overlayCtx.shadowColor = 'transparent';
+    overlayCtx.shadowBlur = 0;
+    overlayCtx.shadowOffsetX = 0;
+    overlayCtx.shadowOffsetY = 0;
+  }
+
+  function renderImageLayer(ls, x, y, w, h) {
+    var img = new Image();
+    img.onload = function() {
+      // Fit image within the layer bounds
+      var scale = Math.min(w / img.width, h / img.height);
+      var drawW = img.width * scale;
+      var drawH = img.height * scale;
+      var drawX = x + (w - drawW) / 2;
+      var drawY = y + (h - drawH) / 2;
+      overlayCtx.drawImage(img, drawX, drawY, drawW, drawH);
+    };
+    img.src = ls.imageDataUrl;
+  }
+
+  // ─── Variant change listener ───
+  function setupVariantListener() {
+    document.addEventListener('variant:change', function(e) {
+      var detail = e.detail || {};
+      var newVariantId = detail.variant ? detail.variant.id : null;
+      if (newVariantId) handleVariantChange(String(newVariantId));
+    });
+
+    var lastUrl = window.location.href;
+    setInterval(function() {
+      if (window.location.href !== lastUrl) {
+        lastUrl = window.location.href;
+        var urlParams = new URLSearchParams(window.location.search);
+        var newVariantId = urlParams.get('variant');
+        if (newVariantId) handleVariantChange(newVariantId);
+      }
+    }, 500);
+
+    document.querySelectorAll('input[name="id"], select[name="id"]').forEach(function(el) {
+      el.addEventListener('change', function() { handleVariantChange(this.value); });
+    });
+
+    document.querySelectorAll('variant-radios, variant-selects, fieldset').forEach(function(el) {
+      new MutationObserver(function() {
+        var selectedInput = el.querySelector('input[name="id"]:checked') || el.querySelector('select[name="id"]');
+        if (selectedInput) handleVariantChange(selectedInput.value);
+      }).observe(el, { subtree: true, attributes: true, childList: true });
+    });
+  }
+
+  function handleVariantChange(newVariantId) {
+    if (newVariantId === currentVariantId) return;
+    currentVariantId = newVariantId;
+    console.log('[Customizer] Variant changed to:', newVariantId);
+
+    if (templateConfig && templateConfig.variantImages) {
+      var variantImage = templateConfig.variantImages[newVariantId];
+      if (variantImage) {
+        swapProductImage(variantImage);
+      } else if (templateConfig.defaultMockupUrl) {
+        swapProductImage(templateConfig.defaultMockupUrl);
+      }
+    }
+    renderPreview();
+  }
+
+  // ─── Helpers ───
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // ─── Init ───
+  function initWhenReady() {
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function() {
+        setTimeout(function() { fetchTemplateConfig(currentVariantId); }, 300);
+      });
+    } else {
+      setTimeout(function() { fetchTemplateConfig(currentVariantId); }, 800);
+    }
+  }
+
+  if (document.readyState === 'complete') {
+    initWhenReady();
+  } else {
+    window.addEventListener('load', initWhenReady);
+  }
+  document.addEventListener('shopify:section:load', initWhenReady);
+})();
 </script>
 
 {% schema %}
 {
-  "name": "Monogram Customizer",
+  "name": "Product Customizer",
   "target": "section",
   "settings": [
     {
       "type": "text",
       "id": "title",
       "label": "Section Title",
-      "default": "Personalize Your Hat"
+      "default": "Personalize Your Product"
     }
   ]
 }
