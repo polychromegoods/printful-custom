@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
+import { json, unstable_parseMultipartFormData, unstable_createMemoryUploadHandler } from "@remix-run/node";
 import {
   useLoaderData,
   useSubmit,
@@ -26,7 +26,6 @@ import {
   Divider,
   RangeSlider,
   DropZone,
-  LegacyStack,
   Spinner,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
@@ -36,7 +35,7 @@ import { useState, useCallback, useEffect } from "react";
 
 // ─── Loader: fetch all product bases for this shop ───
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, admin } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
 
   const productBases = await db.productBase.findMany({
     where: { shop: session.shop },
@@ -50,7 +49,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 // ─── Action: handle create, update, delete, upload ───
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
-  const formData = await request.formData();
+
+  // Check if this is a multipart upload
+  const contentType = request.headers.get("content-type") || "";
+  let formData: FormData;
+
+  if (contentType.includes("multipart/form-data")) {
+    const uploadHandler = unstable_createMemoryUploadHandler({
+      maxPartSize: 20_000_000, // 20MB
+    });
+    formData = await unstable_parseMultipartFormData(request, uploadHandler);
+  } else {
+    formData = await request.formData();
+  }
+
   const intent = formData.get("intent") as string;
 
   try {
@@ -95,47 +107,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json({ success: true, productBase, message: "Product base saved." });
     }
 
-    // ── Add variant image ──
-    if (intent === "addImage") {
+    // ── Upload image (handles entire flow server-side) ──
+    if (intent === "uploadImage") {
       const productBaseId = formData.get("productBaseId") as string;
       const shopifyVariantId = formData.get("shopifyVariantId") as string | null;
       const variantTitle = formData.get("variantTitle") as string | null;
-      const imageUrl = formData.get("imageUrl") as string;
+      const file = formData.get("file") as File;
 
-      const image = await db.productBaseImage.create({
-        data: {
-          productBaseId,
-          shopifyVariantId: shopifyVariantId || null,
-          variantTitle: variantTitle || "Default",
-          imageUrl,
-        },
-      });
+      if (!file || !(file instanceof File)) {
+        return json({ success: false, error: "No file provided" });
+      }
 
-      return json({ success: true, image, message: "Image added." });
-    }
-
-    // ── Remove variant image ──
-    if (intent === "removeImage") {
-      const imageId = formData.get("imageId") as string;
-      await db.productBaseImage.delete({ where: { id: imageId } });
-      return json({ success: true, message: "Image removed." });
-    }
-
-    // ── Delete product base ──
-    if (intent === "delete") {
-      const productBaseId = formData.get("productBaseId") as string;
-      await db.productBase.delete({ where: { id: productBaseId } });
-      return json({ success: true, message: "Product base deleted." });
-    }
-
-    // ── Upload image via Shopify Files API (staged upload) ──
-    if (intent === "stagedUpload") {
-      const filename = formData.get("filename") as string;
-      const mimeType = formData.get("mimeType") as string;
-      const fileSize = formData.get("fileSize") as string;
-
-      // Create a staged upload target
-      const response = await admin.graphql(
+      // Step 1: Create staged upload target
+      const stagedResponse = await admin.graphql(
         `#graphql
         mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
           stagedUploadsCreate(input: $input) {
@@ -157,10 +141,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           variables: {
             input: [
               {
-                filename,
-                mimeType,
+                filename: file.name,
+                mimeType: file.type || "image/png",
                 resource: "FILE",
-                fileSize,
+                fileSize: file.size.toString(),
                 httpMethod: "POST",
               },
             ],
@@ -168,23 +152,41 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
       );
 
-      const responseJson = await response.json();
-      const targets = responseJson.data?.stagedUploadsCreate?.stagedTargets;
-      const errors = responseJson.data?.stagedUploadsCreate?.userErrors;
+      const stagedJson = await stagedResponse.json();
+      const targets = stagedJson.data?.stagedUploadsCreate?.stagedTargets;
+      const stagedErrors = stagedJson.data?.stagedUploadsCreate?.userErrors;
 
-      if (errors && errors.length > 0) {
-        return json({ success: false, error: errors[0].message });
+      if (stagedErrors && stagedErrors.length > 0) {
+        return json({ success: false, error: `Staged upload error: ${stagedErrors[0].message}` });
       }
 
-      return json({ success: true, stagedTarget: targets?.[0] });
-    }
+      const target = targets?.[0];
+      if (!target) {
+        return json({ success: false, error: "No staged upload target returned" });
+      }
 
-    // ── Create file from staged upload ──
-    if (intent === "createFile") {
-      const resourceUrl = formData.get("resourceUrl") as string;
-      const filename = formData.get("filename") as string;
+      // Step 2: Upload file to the staged URL
+      const uploadFormData = new FormData();
+      target.parameters.forEach((param: { name: string; value: string }) => {
+        uploadFormData.append(param.name, param.value);
+      });
 
-      const response = await admin.graphql(
+      // Convert the File to a Blob for server-side fetch
+      const fileBuffer = Buffer.from(await file.arrayBuffer());
+      const blob = new Blob([fileBuffer], { type: file.type || "image/png" });
+      uploadFormData.append("file", blob, file.name);
+
+      const uploadResponse = await fetch(target.url, {
+        method: "POST",
+        body: uploadFormData,
+      });
+
+      if (!uploadResponse.ok) {
+        return json({ success: false, error: `Upload to S3 failed: ${uploadResponse.statusText}` });
+      }
+
+      // Step 3: Create file in Shopify
+      const createResponse = await admin.graphql(
         `#graphql
         mutation fileCreate($files: [FileCreateInput!]!) {
           fileCreate(files: $files) {
@@ -207,8 +209,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           variables: {
             files: [
               {
-                originalSource: resourceUrl,
-                alt: filename,
+                originalSource: target.resourceUrl,
+                alt: file.name,
                 contentType: "IMAGE",
               },
             ],
@@ -216,50 +218,86 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
       );
 
-      const responseJson = await response.json();
-      const files = responseJson.data?.fileCreate?.files;
-      const errors = responseJson.data?.fileCreate?.userErrors;
+      const createJson = await createResponse.json();
+      const files = createJson.data?.fileCreate?.files;
+      const createErrors = createJson.data?.fileCreate?.userErrors;
 
-      if (errors && errors.length > 0) {
-        return json({ success: false, error: errors[0].message });
+      if (createErrors && createErrors.length > 0) {
+        return json({ success: false, error: `File create error: ${createErrors[0].message}` });
       }
 
-      // The image URL might not be immediately available (processing)
-      // Return the file ID so we can poll for the URL
       const fileId = files?.[0]?.id;
-      const imageUrl = files?.[0]?.image?.url;
+      let imageUrl = files?.[0]?.image?.url;
 
-      return json({ success: true, fileId, imageUrl });
+      // Step 4: Poll for the image URL if not immediately available
+      if (!imageUrl && fileId) {
+        for (let i = 0; i < 15; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+
+          const pollResponse = await admin.graphql(
+            `#graphql
+            query getFile($id: ID!) {
+              node(id: $id) {
+                ... on MediaImage {
+                  id
+                  image {
+                    url
+                  }
+                  fileStatus
+                }
+              }
+            }`,
+            { variables: { id: fileId } }
+          );
+
+          const pollJson = await pollResponse.json();
+          const node = pollJson.data?.node;
+
+          if (node?.image?.url) {
+            imageUrl = node.image.url;
+            break;
+          }
+          if (node?.fileStatus === "FAILED") {
+            return json({ success: false, error: "Shopify file processing failed" });
+          }
+        }
+      }
+
+      if (!imageUrl) {
+        return json({ success: false, error: "Timed out waiting for image URL from Shopify" });
+      }
+
+      // Step 5: Save the image record in our database
+      const image = await db.productBaseImage.create({
+        data: {
+          productBaseId,
+          shopifyVariantId: shopifyVariantId || null,
+          variantTitle: variantTitle || "Default",
+          imageUrl,
+        },
+      });
+
+      // Reload the product base to return updated data
+      const updatedBase = await db.productBase.findUnique({
+        where: { id: productBaseId },
+        include: { images: { orderBy: { sortOrder: "asc" } } },
+      });
+
+      return json({ success: true, image, updatedBase, message: "Image uploaded successfully!" });
     }
 
-    // ── Poll for file URL ──
-    if (intent === "pollFile") {
-      const fileId = formData.get("fileId") as string;
+    // ── Remove variant image ──
+    if (intent === "removeImage") {
+      const imageId = formData.get("imageId") as string;
+      await db.productBaseImage.delete({ where: { id: imageId } });
+      return json({ success: true, message: "Image removed." });
+    }
 
-      const response = await admin.graphql(
-        `#graphql
-        query getFile($id: ID!) {
-          node(id: $id) {
-            ... on MediaImage {
-              id
-              image {
-                url
-              }
-              fileStatus
-            }
-          }
-        }`,
-        { variables: { id: fileId } }
-      );
-
-      const responseJson = await response.json();
-      const node = responseJson.data?.node;
-
-      return json({
-        success: true,
-        fileStatus: node?.fileStatus,
-        imageUrl: node?.image?.url,
-      });
+    // ── Delete product base ──
+    if (intent === "delete") {
+      const productBaseId = formData.get("productBaseId") as string;
+      await db.productBase.delete({ where: { id: productBaseId } });
+      return json({ success: true, message: "Product base deleted." });
     }
 
     // ── Fetch products for picker ──
@@ -311,12 +349,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 // ─── Component ───
 export default function ProductBases() {
-  const { productBases } = useLoaderData<typeof loader>();
+  const { productBases: initialBases } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
 
+  // Keep a local copy of product bases that updates from action data
+  const [productBases, setProductBases] = useState(initialBases);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedBase, setSelectedBase] = useState<any>(null);
@@ -334,25 +374,50 @@ export default function ProductBases() {
   const [selectedVariantId, setSelectedVariantId] = useState("");
   const [selectedVariantTitle, setSelectedVariantTitle] = useState("Default");
 
+  // Sync product bases from loader
+  useEffect(() => {
+    setProductBases(initialBases);
+  }, [initialBases]);
+
+  // Update from action data
+  useEffect(() => {
+    if (actionData && "products" in actionData && actionData.products) {
+      setProducts(actionData.products as any[]);
+    }
+    if (actionData && "updatedBase" in actionData && actionData.updatedBase) {
+      // Update the local product bases list with the updated base
+      setProductBases((prev: any[]) =>
+        prev.map((b: any) =>
+          b.id === (actionData as any).updatedBase.id ? (actionData as any).updatedBase : b
+        )
+      );
+      // Also update selectedBase if it's the same
+      if (selectedBase?.id === (actionData as any).updatedBase.id) {
+        setSelectedBase((actionData as any).updatedBase);
+      }
+      setUploadingImage(false);
+    }
+    if (actionData && "message" in actionData && actionData.message) {
+      // Upload completed
+      setUploadingImage(false);
+    }
+    if (actionData && "error" in actionData && actionData.error) {
+      setUploadingImage(false);
+    }
+  }, [actionData, selectedBase]);
+
   // Fetch products when create modal opens
   const handleOpenCreate = useCallback(() => {
+    setSelectedBase(null);
     setShowCreateModal(true);
     const formData = new FormData();
     formData.set("intent", "fetchProducts");
     submit(formData, { method: "post" });
   }, [submit]);
 
-  // Update products list from action data
-  useEffect(() => {
-    if (actionData && "products" in actionData && actionData.products) {
-      setProducts(actionData.products as any[]);
-    }
-  }, [actionData]);
-
   // Handle product selection
   const handleSelectProduct = useCallback((product: any) => {
     setSelectedProduct(product);
-    // Reset print area to defaults
     setPrintAreaX(25);
     setPrintAreaY(15);
     setPrintAreaWidth(50);
@@ -380,6 +445,8 @@ export default function ProductBases() {
   const handleManageImages = useCallback((base: any) => {
     setSelectedBase(base);
     setShowImageModal(true);
+    setSelectedVariantId("");
+    setSelectedVariantTitle("Default");
   }, []);
 
   // Delete a product base
@@ -394,108 +461,24 @@ export default function ProductBases() {
     [submit]
   );
 
-  // Handle image file drop/upload
+  // Handle image file drop/upload — now sends file directly to server action
   const handleDropZoneDrop = useCallback(
-    async (_dropFiles: File[], acceptedFiles: File[]) => {
+    (_dropFiles: File[], acceptedFiles: File[]) => {
       if (!selectedBase || acceptedFiles.length === 0) return;
       setUploadingImage(true);
 
       const file = acceptedFiles[0];
+      const formData = new FormData();
+      formData.set("intent", "uploadImage");
+      formData.set("productBaseId", selectedBase.id);
+      formData.set("shopifyVariantId", selectedVariantId);
+      formData.set("variantTitle", selectedVariantTitle || "Default");
+      formData.set("file", file);
 
-      try {
-        // Step 1: Get staged upload URL
-        const stagedFormData = new FormData();
-        stagedFormData.set("intent", "stagedUpload");
-        stagedFormData.set("filename", file.name);
-        stagedFormData.set("mimeType", file.type);
-        stagedFormData.set("fileSize", file.size.toString());
-
-        const stagedResponse = await fetch("/app/product-bases", {
-          method: "POST",
-          body: stagedFormData,
-        });
-        const stagedResult = await stagedResponse.json();
-
-        if (!stagedResult.success || !stagedResult.stagedTarget) {
-          throw new Error(stagedResult.error || "Failed to create staged upload");
-        }
-
-        const target = stagedResult.stagedTarget;
-
-        // Step 2: Upload file to staged URL
-        const uploadFormData = new FormData();
-        target.parameters.forEach((param: { name: string; value: string }) => {
-          uploadFormData.append(param.name, param.value);
-        });
-        uploadFormData.append("file", file);
-
-        await fetch(target.url, {
-          method: "POST",
-          body: uploadFormData,
-        });
-
-        // Step 3: Create file in Shopify
-        const createFormData = new FormData();
-        createFormData.set("intent", "createFile");
-        createFormData.set("resourceUrl", target.resourceUrl);
-        createFormData.set("filename", file.name);
-
-        const createResponse = await fetch("/app/product-bases", {
-          method: "POST",
-          body: createFormData,
-        });
-        const createResult = await createResponse.json();
-
-        if (!createResult.success) {
-          throw new Error(createResult.error || "Failed to create file");
-        }
-
-        // Step 4: Poll for the file URL if not immediately available
-        let imageUrl = createResult.imageUrl;
-        const fileId = createResult.fileId;
-
-        if (!imageUrl && fileId) {
-          // Poll up to 10 times
-          for (let i = 0; i < 10; i++) {
-            await new Promise((r) => setTimeout(r, 2000));
-            const pollFormData = new FormData();
-            pollFormData.set("intent", "pollFile");
-            pollFormData.set("fileId", fileId);
-
-            const pollResponse = await fetch("/app/product-bases", {
-              method: "POST",
-              body: pollFormData,
-            });
-            const pollResult = await pollResponse.json();
-
-            if (pollResult.imageUrl) {
-              imageUrl = pollResult.imageUrl;
-              break;
-            }
-            if (pollResult.fileStatus === "FAILED") {
-              throw new Error("File processing failed");
-            }
-          }
-        }
-
-        if (!imageUrl) {
-          throw new Error("Timed out waiting for image URL");
-        }
-
-        // Step 5: Save the image record
-        const addFormData = new FormData();
-        addFormData.set("intent", "addImage");
-        addFormData.set("productBaseId", selectedBase.id);
-        addFormData.set("shopifyVariantId", selectedVariantId);
-        addFormData.set("variantTitle", selectedVariantTitle);
-        addFormData.set("imageUrl", imageUrl);
-        submit(addFormData, { method: "post" });
-      } catch (error: any) {
-        console.error("Upload error:", error);
-        alert("Upload failed: " + error.message);
-      } finally {
-        setUploadingImage(false);
-      }
+      submit(formData, {
+        method: "post",
+        encType: "multipart/form-data",
+      });
     },
     [selectedBase, selectedVariantId, selectedVariantTitle, submit]
   );
@@ -518,6 +501,7 @@ export default function ProductBases() {
       id: base.shopifyProductId,
       title: base.productTitle,
       handle: base.productHandle,
+      featuredImage: base.images.length > 0 ? { url: base.images[0].imageUrl } : null,
     });
     setPrintAreaX(base.printAreaX);
     setPrintAreaY(base.printAreaY);
@@ -664,6 +648,7 @@ export default function ProductBases() {
           onClose={() => {
             setShowCreateModal(false);
             setSelectedProduct(null);
+            setSelectedBase(null);
           }}
           title={selectedBase ? "Edit Print Area" : "Add Product Base"}
           primaryAction={{
@@ -678,6 +663,7 @@ export default function ProductBases() {
               onAction: () => {
                 setShowCreateModal(false);
                 setSelectedProduct(null);
+                setSelectedBase(null);
               },
             },
           ]}
@@ -936,7 +922,7 @@ export default function ProductBases() {
                   <Box padding="800">
                     <InlineStack align="center" gap="200">
                       <Spinner size="small" />
-                      <Text as="span">Uploading and processing...</Text>
+                      <Text as="span">Uploading and processing... This may take a few seconds.</Text>
                     </InlineStack>
                   </Box>
                 ) : (
