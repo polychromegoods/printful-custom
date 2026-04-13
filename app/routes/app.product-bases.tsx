@@ -143,6 +143,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         },
       });
 
+      // Auto-create default mockup from product base config
+      const productBase = PRODUCT_BASES.find((pb) => pb.slug === productBaseSlug);
+      if (productBase?.defaultMockupUrl) {
+        await db.mockupImage.create({
+          data: {
+            templateId: template.id,
+            variantColor: "Default",
+            variantColorHex: "#ffffff",
+            imageUrl: productBase.defaultMockupUrl,
+            isDefault: true,
+          },
+        });
+      }
+
       return json({ success: true, templateId: template.id });
     }
 
@@ -851,9 +865,9 @@ export default function ProductBasesPage() {
         technique={selectedTechnique}
         mockupImageUrl={
           (editingTemplateId
-            ? templates.find((t) => t.id === editingTemplateId)?.mockupImages?.[0]?.imageUrl
-            : undefined
-          ) || selectedBaseFromRegistry?.defaultMockupUrl || undefined
+            ? templates.find((t) => t.id === editingTemplateId)?.mockupImages?.[0]?.imageUrl || selectedBaseFromRegistry?.defaultMockupUrl
+            : selectedBaseFromRegistry?.defaultMockupUrl
+          ) || undefined
         }
       />
     </BlockStack>

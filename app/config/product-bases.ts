@@ -202,7 +202,7 @@ export const PRODUCT_BASES: ProductBase[] = [
     brand: "Yupoong",
     model: "6245CM",
     category: "hat",
-    defaultMockupUrl: "/mockups/dad-hat-white.png",
+    defaultMockupUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/UIVoxqzDoPJiUmIv.png",
     techniques: [
       { key: "embroidery", displayName: "Embroidery", isDefault: true },
       { key: "dtfilm", displayName: "DTF Printing", isDefault: false },

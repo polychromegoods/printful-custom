@@ -199,6 +199,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       currentMockupUrl =
         defaultMockup?.imageUrl ||
         template.mockupImages[0]?.imageUrl ||
+        productBase.defaultMockupUrl ||
         null;
     }
 
@@ -278,6 +279,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           defaultMockupUrl:
             template.mockupImages.find((m) => m.isDefault)?.imageUrl ||
             template.mockupImages[0]?.imageUrl ||
+            productBase.defaultMockupUrl ||
             null,
         },
       }),
