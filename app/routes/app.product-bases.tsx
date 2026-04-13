@@ -355,6 +355,76 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json({ success: true });
     }
 
+    if (intent === "update_template") {
+      const templateId = formData.get("templateId") as string;
+      const productBaseSlug = formData.get("productBaseSlug") as string;
+      const rawProductId = formData.get("shopifyProductId") as string;
+      const shopifyProductId = rawProductId.startsWith("gid://")
+        ? rawProductId
+        : rawProductId.match(/^\d+$/)
+          ? `gid://shopify/Product/${rawProductId}`
+          : rawProductId;
+      const productTitle = formData.get("productTitle") as string;
+      const productHandle = formData.get("productHandle") as string;
+      const technique = formData.get("technique") as string;
+      const placementKey = formData.get("placementKey") as string;
+      const enabledFonts = formData.get("enabledFonts") as string;
+      const enabledThreadColors = formData.get("enabledThreadColors") as string;
+      const enabledVariantColors = formData.get("enabledVariantColors") as string;
+      const printAreaX = parseFloat(formData.get("printAreaX") as string) || 25;
+      const printAreaY = parseFloat(formData.get("printAreaY") as string) || 15;
+      const printAreaWidth = parseFloat(formData.get("printAreaWidth") as string) || 50;
+      const printAreaHeight = parseFloat(formData.get("printAreaHeight") as string) || 35;
+      const layersJson = formData.get("layers") as string;
+      const layers = layersJson ? JSON.parse(layersJson) : [];
+
+      // Update the template
+      await db.productTemplate.update({
+        where: { id: templateId },
+        data: {
+          shopifyProductId,
+          productTitle,
+          productHandle,
+          productBaseSlug,
+          technique,
+          placementKey,
+          enabledFonts,
+          enabledThreadColors,
+          enabledVariantColors,
+          printAreaX,
+          printAreaY,
+          printAreaWidth,
+          printAreaHeight,
+        },
+      });
+
+      // Delete old layers and re-create
+      await db.templateLayer.deleteMany({ where: { templateId } });
+      for (let i = 0; i < layers.length; i++) {
+        const layer = layers[i];
+        await db.templateLayer.create({
+          data: {
+            templateId,
+            layerType: layer.layerType,
+            label: layer.label,
+            customerEditable: layer.customerEditable ?? true,
+            positionX: layer.positionX ?? 10,
+            positionY: layer.positionY ?? 10,
+            positionWidth: layer.positionWidth ?? 80,
+            positionHeight: layer.positionHeight ?? 80,
+            sortOrder: i,
+            maxChars: layer.maxChars ?? null,
+            placeholder: layer.placeholder ?? null,
+            defaultFont: layer.defaultFont ?? "script",
+            defaultColor: layer.defaultColor ?? "#000000",
+            fixedImageUrl: layer.fixedImageUrl ?? null,
+          },
+        });
+      }
+
+      return json({ success: true, templateId });
+    }
+
     if (intent === "toggle_active") {
       const templateId = formData.get("templateId") as string;
       const template = await db.productTemplate.findUnique({ where: { id: templateId } });
@@ -423,6 +493,9 @@ export default function ProductBasesPage() {
   const [mockupUploadMode, setMockupUploadMode] = useState<"url" | "file">("file");
   const [isUploading, setIsUploading] = useState(false);
 
+  // Edit mode
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+
   // Edit product ID modal
   const [showEditModal, setShowEditModal] = useState(false);
   const [editTemplateId, setEditTemplateId] = useState("");
@@ -456,21 +529,65 @@ export default function ProductBasesPage() {
     setShopifyProductId("");
     setProductTitle("");
     setProductHandle("");
+    setEditingTemplateId(null);
   }, []);
 
-  // When base changes, set defaults
+  // Load existing template into wizard for editing
+  const loadTemplateForEdit = useCallback((template: typeof templates[0]) => {
+    setEditingTemplateId(template.id);
+    setSelectedBaseSlug(template.productBaseSlug);
+    setSelectedTechnique(template.technique);
+    setSelectedPlacement(template.placementKey);
+    setLayers(template.layers.map((l) => ({
+      layerType: l.layerType,
+      label: l.label,
+      customerEditable: l.customerEditable,
+      positionX: l.positionX,
+      positionY: l.positionY,
+      positionWidth: l.positionWidth,
+      positionHeight: l.positionHeight,
+      maxChars: l.maxChars,
+      placeholder: l.placeholder,
+      defaultFont: l.defaultFont,
+      defaultColor: l.defaultColor,
+      fixedImageUrl: l.fixedImageUrl,
+    })));
+    // Parse JSON fields
+    try {
+      setEnabledFontKeys(JSON.parse(template.enabledFonts));
+    } catch { setEnabledFontKeys(["script", "block"]); }
+    try {
+      const tc = JSON.parse(template.enabledThreadColors);
+      setEnabledThreadColorHexes(tc);
+    } catch { setEnabledThreadColorHexes([]); }
+    try {
+      const vc = JSON.parse(template.enabledVariantColors);
+      setEnabledVariantColors(vc);
+    } catch { setEnabledVariantColors([]); }
+    setPrintAreaX(template.printAreaX);
+    setPrintAreaY(template.printAreaY);
+    setPrintAreaWidth(template.printAreaWidth);
+    setPrintAreaHeight(template.printAreaHeight);
+    setShopifyProductId(template.shopifyProductId);
+    setProductTitle(template.productTitle);
+    setProductHandle(template.productHandle || "");
+    setWizardStep(1);
+    setShowWizard(true);
+  }, [templates]);
+
+  // When base changes, set defaults (only in create mode)
   useEffect(() => {
-    if (selectedPlacementSpec) {
+    if (selectedPlacementSpec && !editingTemplateId) {
       setPrintAreaX(selectedPlacementSpec.mockupPosition.x);
       setPrintAreaY(selectedPlacementSpec.mockupPosition.y);
       setPrintAreaWidth(selectedPlacementSpec.mockupPosition.width);
       setPrintAreaHeight(selectedPlacementSpec.mockupPosition.height);
     }
-  }, [selectedPlacementSpec]);
+  }, [selectedPlacementSpec, editingTemplateId]);
 
-  // When technique changes, add default layer
+  // When technique changes, add default layer (only in create mode)
   useEffect(() => {
-    if (selectedTechnique && layers.length === 0) {
+    if (selectedTechnique && layers.length === 0 && !editingTemplateId) {
       if (selectedTechnique === "embroidery") {
         setLayers([{
           layerType: "text",
@@ -505,9 +622,12 @@ export default function ProductBasesPage() {
     }
   }, [actionData]);
 
-  const handleCreateTemplate = useCallback(() => {
+  const handleSaveTemplate = useCallback(() => {
     const formData = new FormData();
-    formData.set("intent", "create_template");
+    formData.set("intent", editingTemplateId ? "update_template" : "create_template");
+    if (editingTemplateId) {
+      formData.set("templateId", editingTemplateId);
+    }
     formData.set("productBaseSlug", selectedBaseSlug);
     formData.set("shopifyProductId", shopifyProductId);
     formData.set("productTitle", productTitle);
@@ -523,7 +643,7 @@ export default function ProductBasesPage() {
     formData.set("printAreaHeight", String(printAreaHeight));
     formData.set("layers", JSON.stringify(layers));
     submit(formData, { method: "post" });
-  }, [selectedBaseSlug, shopifyProductId, productTitle, productHandle, selectedTechnique, selectedPlacement, enabledFontKeys, enabledThreadColorHexes, enabledVariantColors, printAreaX, printAreaY, printAreaWidth, printAreaHeight, layers, submit]);
+  }, [editingTemplateId, selectedBaseSlug, shopifyProductId, productTitle, productHandle, selectedTechnique, selectedPlacement, enabledFontKeys, enabledThreadColorHexes, enabledVariantColors, printAreaX, printAreaY, printAreaWidth, printAreaHeight, layers, submit]);
 
   const handleDeleteTemplate = useCallback((templateId: string) => {
     if (!confirm("Delete this product template? This cannot be undone.")) return;
@@ -721,6 +841,11 @@ export default function ProductBasesPage() {
         fonts={fonts.map((f) => ({ key: f.key, displayName: f.displayName }))}
         productCategory={selectedBase?.category}
         technique={selectedTechnique}
+        mockupImageUrl={
+          editingTemplateId
+            ? templates.find((t) => t.id === editingTemplateId)?.mockupImages?.[0]?.imageUrl
+            : undefined
+        }
       />
     </BlockStack>
   );
@@ -958,12 +1083,19 @@ export default function ProductBasesPage() {
     </BlockStack>
   );
 
-  // ─── Summary before create ──────────────────────────────────────────────
+  // ─── Summary before save ──────────────────────────────────────────────
   const renderSummary = () => {
     const base = productBases.find((pb) => pb.slug === selectedBaseSlug);
     return (
       <BlockStack gap="300">
-        <Text as="h2" variant="headingMd">Review & Create</Text>
+        {editingTemplateId && (
+          <Banner tone="warning">
+            <Text as="p" variant="bodyMd">
+              You are editing an existing template. Clicking "Save Changes" will update it.
+            </Text>
+          </Banner>
+        )}
+        <Text as="h2" variant="headingMd">{editingTemplateId ? "Review & Save" : "Review & Create"}</Text>
         <Box padding="400" background="bg-surface-secondary" borderRadius="200">
           <BlockStack gap="200">
             <Text as="p" variant="bodyMd"><strong>Product Base:</strong> {base?.name} ({base?.brand} {base?.model})</Text>
@@ -1072,6 +1204,11 @@ export default function ProductBasesPage() {
                             variant="plain"
                             onClick={() => {
                               setMockupTemplateId(template.id);
+                              setMockupVariantColor("Default");
+                              setMockupVariantColorHex("#ffffff");
+                              setMockupFile(null);
+                              setMockupImageUrl("");
+                              setMockupUploadMode("file");
                               setShowMockupModal(true);
                             }}
                           >
@@ -1097,6 +1234,12 @@ export default function ProductBasesPage() {
                         <InlineStack gap="200">
                           <Button
                             variant="plain"
+                            onClick={() => loadTemplateForEdit(template)}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="plain"
                             onClick={() => {
                               setEditTemplateId(template.id);
                               setEditProductId(template.shopifyProductId);
@@ -1105,7 +1248,7 @@ export default function ProductBasesPage() {
                               setShowEditModal(true);
                             }}
                           >
-                            Edit
+                            Link
                           </Button>
                           <Button
                             variant="plain"
@@ -1154,14 +1297,14 @@ export default function ProductBasesPage() {
         </Layout.Section>
       </Layout>
 
-      {/* ─── Create Template Wizard Modal ─── */}
+      {/* ─── Create/Edit Template Wizard Modal ─── */}
       <Modal
         open={showWizard}
         onClose={() => setShowWizard(false)}
-        title={`New Product Template — Step ${wizardStep} of ${totalSteps}: ${stepTitles[wizardStep - 1]}`}
+        title={`${editingTemplateId ? "Edit" : "New"} Product Template — Step ${wizardStep} of ${totalSteps}: ${stepTitles[wizardStep - 1]}`}
         primaryAction={
           wizardStep === totalSteps
-            ? { content: "Create Template", onAction: handleCreateTemplate, loading: isLoading }
+            ? { content: editingTemplateId ? "Save Changes" : "Create Template", onAction: handleSaveTemplate, loading: isLoading }
             : { content: "Next", onAction: () => setWizardStep(wizardStep + 1), disabled: !canAdvance() }
         }
         secondaryActions={
