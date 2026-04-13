@@ -105,18 +105,27 @@
     font-family: 'Avenir Next', sans-serif;
   }
   .pc-customizer__colors {
-    display: flex;
+    display: flex !important;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 0;
   }
   .pc-customizer__color-swatch {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    border: 2px solid #ccc;
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    min-height: 28px !important;
+    border-radius: 50% !important;
+    border: 2px solid #ccc !important;
     cursor: pointer;
     transition: all 0.2s;
     box-shadow: 0 0 0 1px rgba(0,0,0,0.08);
+    display: inline-block !important;
+    padding: 0 !important;
+    margin: 0;
+    vertical-align: middle;
+    box-sizing: border-box;
   }
   .pc-customizer__color-swatch:hover {
     transform: scale(1.15);
@@ -280,6 +289,7 @@
     var maxChars = layer.maxChars || 20;
     var fonts = layer.fonts || templateConfig.fonts || [];
     var colors = templateConfig.threadColors || [];
+    console.log('[Customizer] Thread colors for layer', layer.id, ':', colors.length, 'colors', colors);
 
     var html = '<div class="pc-customizer__field">';
     html += '<label class="pc-customizer__label">' + escapeHtml(layer.label) + ' (1-' + maxChars + ' characters)</label>';

@@ -7,16 +7,65 @@
   The preview URL is an app proxy path like:
     /apps/api/preview?text=ABC&style=script&color=%23000000&format=image
   
+  Shows a spinning loader while the preview image loads, then swaps it in.
+  
   Note: Shopify checkout and order confirmation automatically render
   image URLs stored in visible line item properties, so this block
   is primarily needed for the storefront cart drawer and cart page.
 {% endcomment %}
+
+<style>
+  .monogram-cart-spinner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 24px;
+    height: 24px;
+    border: 3px solid #e5e5e5;
+    border-top-color: #333;
+    border-radius: 50%;
+    animation: monogram-spin 0.7s linear infinite;
+    z-index: 5;
+    pointer-events: none;
+  }
+  @keyframes monogram-spin {
+    to { transform: translate(-50%, -50%) rotate(360deg); }
+  }
+  .monogram-cart-loading {
+    position: relative;
+  }
+  .monogram-cart-loading img {
+    opacity: 0.3;
+    transition: opacity 0.3s ease;
+  }
+  .monogram-cart-loaded img {
+    opacity: 1;
+  }
+</style>
 
 <script>
   (function() {
     'use strict';
 
     let debounceTimer = null;
+    const preloadCache = {};
+
+    function preloadImage(url) {
+      return new Promise(function(resolve, reject) {
+        if (preloadCache[url]) {
+          resolve(url);
+          return;
+        }
+        var img = new Image();
+        img.onload = function() {
+          preloadCache[url] = true;
+          resolve(url);
+        };
+        img.onerror = reject;
+        img.src = url;
+      });
+    }
 
     function replaceCartThumbnails() {
       fetch('/cart.js', { credentials: 'same-origin' })
@@ -30,18 +79,14 @@
             if (!previewUrl) return;
 
             // Find all cart item containers in the DOM
-            // Try many selectors to cover Dawn theme cart page, cart drawer, and other themes
             var cartItemSelectors = [
-              // Dawn theme cart drawer
               'cart-drawer-items .cart-item',
               '#CartDrawer .cart-item',
               '#cart-drawer .cart-item',
               'cart-notification .cart-notification-product',
-              // Dawn theme cart page
               'cart-items .cart-item',
               'cart-items tr.cart-item',
               'table.cart-items tbody tr',
-              // Generic selectors
               '.cart-item',
               '.cart__item',
               '.mini-cart__item',
@@ -62,29 +107,61 @@
             var targetItem = cartItems[index];
             if (!targetItem) return;
 
-            // Find all images inside this cart item and replace the first product image
             var imgs = targetItem.querySelectorAll('img');
             if (imgs.length === 0) return;
 
             imgs.forEach(function(img) {
-              // Only replace if not already replaced
               if (img.dataset.monogramReplaced === 'true') return;
 
-              // Make the preview URL absolute if it's a relative app proxy path
               var fullUrl = previewUrl;
               if (previewUrl.startsWith('/')) {
                 fullUrl = window.location.origin + previewUrl;
               }
 
-              img.dataset.originalSrc = img.src;
+              // Mark as being replaced so we don't double-process
               img.dataset.monogramReplaced = 'true';
-              img.src = fullUrl;
-              img.srcset = '';
-              // Clear lazy-loading attributes
-              if (img.dataset.src) img.dataset.src = fullUrl;
-              if (img.dataset.srcset) img.dataset.srcset = '';
-              // Remove any width/height constraints that might distort
-              img.style.objectFit = 'contain';
+              img.dataset.originalSrc = img.src;
+
+              // Add spinner overlay
+              var wrapper = img.parentElement;
+              if (wrapper) {
+                wrapper.classList.add('monogram-cart-loading');
+                wrapper.style.position = wrapper.style.position || 'relative';
+                
+                // Add spinner if not already there
+                if (!wrapper.querySelector('.monogram-cart-spinner')) {
+                  var spinner = document.createElement('div');
+                  spinner.className = 'monogram-cart-spinner';
+                  wrapper.appendChild(spinner);
+                }
+              }
+
+              // Preload the image, then swap
+              preloadImage(fullUrl).then(function() {
+                img.src = fullUrl;
+                img.srcset = '';
+                if (img.dataset.src) img.dataset.src = fullUrl;
+                if (img.dataset.srcset) img.dataset.srcset = '';
+                img.style.objectFit = 'contain';
+
+                // Remove spinner and restore opacity
+                if (wrapper) {
+                  wrapper.classList.remove('monogram-cart-loading');
+                  wrapper.classList.add('monogram-cart-loaded');
+                  var spinner = wrapper.querySelector('.monogram-cart-spinner');
+                  if (spinner) spinner.remove();
+                }
+              }).catch(function() {
+                // On error, just swap directly (better than nothing)
+                img.src = fullUrl;
+                img.srcset = '';
+                img.style.objectFit = 'contain';
+                if (wrapper) {
+                  wrapper.classList.remove('monogram-cart-loading');
+                  var spinner = wrapper.querySelector('.monogram-cart-spinner');
+                  if (spinner) spinner.remove();
+                }
+              });
             });
           });
         })
@@ -107,10 +184,9 @@
 
     // Watch for DOM changes (cart drawer opening, AJAX cart updates)
     var observer = new MutationObserver(function(mutations) {
-      // Check if any mutation involves cart-related elements
       var isCartRelated = mutations.some(function(m) {
         var target = m.target;
-        if (!target || !target.closest) return true; // default to running
+        if (!target || !target.closest) return true;
         return target.closest('[id*="cart" i], [class*="cart" i], cart-drawer, cart-notification, cart-drawer-items');
       });
       if (isCartRelated) {
@@ -125,7 +201,6 @@
     document.addEventListener('cart:refresh', debouncedReplace);
 
     // Also run periodically for the first few seconds after page load
-    // to catch dynamically loaded cart drawers
     var runCount = 0;
     var periodicCheck = setInterval(function() {
       debouncedReplace();
