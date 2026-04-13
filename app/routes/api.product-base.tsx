@@ -127,16 +127,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       (p) => p.placementKey === template.placementKey
     );
 
-    // Parse enabled fonts
+    // Parse enabled fonts — if empty or invalid, default to ALL fonts
     let enabledFontKeys: string[] = [];
     try {
-      enabledFontKeys = JSON.parse(template.enabledFonts);
+      const parsed = JSON.parse(template.enabledFonts);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        enabledFontKeys = parsed;
+      }
     } catch {
-      enabledFontKeys = ["script", "block"];
+      // JSON parse failed — use all fonts
     }
-    const enabledFonts = AVAILABLE_FONTS.filter((f) =>
-      enabledFontKeys.includes(f.key)
-    );
+    const enabledFonts = enabledFontKeys.length > 0
+      ? AVAILABLE_FONTS.filter((f) => enabledFontKeys.includes(f.key))
+      : [...AVAILABLE_FONTS];
 
     // Parse enabled thread colors
     let enabledColorHexes: string[] = [];
@@ -173,8 +176,26 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     let currentMockupUrl: string | null = null;
     const variantImageMap: Record<string, string> = {};
 
+    // First, populate from registry's variantMockups (default images per color)
+    // Also map variant Shopify IDs to mockup URLs so the storefront can swap on variant change
+    if (productBase.variantMockups) {
+      for (const [colorName, url] of Object.entries(productBase.variantMockups)) {
+        variantImageMap[colorName] = url;
+        variantImageMap[colorName.toLowerCase()] = url;
+      }
+      // Map each Shopify variant to its color's mockup
+      // The storefront sends Shopify variant IDs, not color names
+      for (const variant of variants) {
+        const mockupUrl = productBase.variantMockups[variant.color];
+        if (mockupUrl) {
+          // Store by printful variant ID (which may be the Shopify variant ID)
+          variantImageMap[String(variant.printfulVariantId)] = mockupUrl;
+        }
+      }
+    }
+
+    // Then overlay with DB mockup images (merchant-uploaded take priority)
     for (const mockup of template.mockupImages) {
-      // Build lookup map
       if (mockup.shopifyVariantId) {
         variantImageMap[mockup.shopifyVariantId] = mockup.imageUrl;
         const numId = extractNumericId(mockup.shopifyVariantId);

@@ -148,8 +148,10 @@ export interface ProductBase {
   placements: PrintAreaSpec[];
   /** All variant colors */
   variants: ProductVariant[];
-  /** Default mockup image URL for the visual editor (stored in public/mockups/) */
+  /** Default mockup image URL for the visual editor */
   defaultMockupUrl?: string;
+  /** Mockup image URLs mapped by variant color name */
+  variantMockups?: Record<string, string>;
   /** Default customization layers (can be overridden per product template) */
   defaultLayers: CustomizationLayerDef[];
 }
@@ -202,7 +204,19 @@ export const PRODUCT_BASES: ProductBase[] = [
     brand: "Yupoong",
     model: "6245CM",
     category: "hat",
-    defaultMockupUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/UIVoxqzDoPJiUmIv.png",
+    defaultMockupUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/DoicGgedrbpWtliI.webp",
+    variantMockups: {
+      "White": "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/DoicGgedrbpWtliI.webp",
+      "Black": "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/hVMqQqWVoUnIaESk.webp",
+      "Green Camo": "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/FyLGXZOHUVwHnsAz.webp",
+      "Navy": "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/KQVqTsdQtgptQQlw.webp",
+      "Dark Grey": "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/DinZcLEvJCIyGWsV.webp",
+      "Khaki": "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/RIyTVTbyHlboqbeC.webp",
+      "Light Blue": "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/xHJLnUJNprMNqIQS.webp",
+      "Pink": "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/CcMgnXgysxtFJzDS.webp",
+      "Spruce": "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/HQrpMPQBFUhwvgdp.webp",
+      "Stone": "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/pOloSlhZHOYaeRBW.webp",
+    },
     techniques: [
       { key: "embroidery", displayName: "Embroidery", isDefault: true },
       { key: "dtfilm", displayName: "DTF Printing", isDefault: false },
