@@ -1,0 +1,26 @@
+#!/usr/bin/expect -f
+
+set timeout 120
+
+spawn pnpm shopify app dev --store=polychrome-dev-store
+
+expect {
+    "Enter your store password" {
+        send "1\r"
+        exp_continue
+    }
+    "Incorrect store password" {
+        send "1\r"
+        exp_continue
+    }
+    "dev session" {
+        # Dev session started
+    }
+    timeout {
+        puts "Timeout waiting for prompt"
+        exit 1
+    }
+}
+
+# Keep the process running
+interact

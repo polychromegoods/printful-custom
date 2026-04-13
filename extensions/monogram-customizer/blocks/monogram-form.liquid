@@ -5,9 +5,9 @@
   - Font style selector (script / block)
   - Thread color picker (Printful's 15 embroidery colors)
   - Live preview overlaid on the product image
-  - On add-to-cart: calls server API to generate a permanent preview image,
-    then stores the URL as a visible line item property so it appears in
-    cart, checkout, order confirmation, and admin.
+  - On add-to-cart: builds an app proxy preview image URL and stores it
+    as a visible line item property so it appears in cart, checkout,
+    order confirmation, and admin.
 {% endcomment %}
 
 <style>
@@ -258,14 +258,6 @@
     <div class="monogram-customizer__spinner"></div>
     <span>Generating your monogram preview...</span>
   </div>
-
-  <!-- Hidden inputs for line item properties -->
-  <!-- Underscore-prefixed properties are hidden from customer but visible in admin/webhooks -->
-  <input type="hidden" name="properties[_monogram_text]" id="prop-monogram-text" value="">
-  <input type="hidden" name="properties[_monogram_style]" id="prop-monogram-style" value="script">
-  <input type="hidden" name="properties[_thread_color]" id="prop-thread-color" value="#000000">
-  <!-- Visible property: Shopify renders image URLs as thumbnails in cart/checkout/order -->
-  <input type="hidden" name="properties[Monogram Preview]" id="prop-preview-image" value="">
 </div>
 
 <script>
@@ -277,21 +269,26 @@
     const colorNameEl = document.getElementById('color-name');
     const loadingEl = document.getElementById('monogram-loading');
 
-    // Hidden properties
-    const propText = document.getElementById('prop-monogram-text');
-    const propStyle = document.getElementById('prop-monogram-style');
-    const propColor = document.getElementById('prop-thread-color');
-    const propPreviewImage = document.getElementById('prop-preview-image');
-
     let currentStyle = 'script';
     let currentColor = '#000000';
+    let currentColorName = 'Black';
     let currentText = '';
     let overlayCanvas = null;
     let overlayCtx = null;
     let productImageEl = null;
-    let isGeneratingPreview = false;
+    let isAddingToCart = false;
 
-    // Find the product image and attach overlay canvas
+    // ─── Build the app proxy preview image URL ───
+    // This URL serves a PNG directly and can be used as an <img> src.
+    // Shopify renders image URLs in visible line item properties as thumbnails.
+    function buildPreviewImageUrl() {
+      return '/apps/api/preview?text=' + encodeURIComponent(currentText)
+        + '&style=' + encodeURIComponent(currentStyle)
+        + '&color=' + encodeURIComponent(currentColor)
+        + '&format=image';
+    }
+
+    // ─── Find the product image and attach overlay canvas ───
     function initOverlay() {
       const selectors = [
         '.product__media img',
@@ -377,36 +374,34 @@
       renderPreview();
     }
 
-    // Style buttons
+    // ─── Style buttons ───
     document.querySelectorAll('.monogram-customizer__style-btn').forEach(btn => {
       btn.addEventListener('click', function() {
         document.querySelectorAll('.monogram-customizer__style-btn').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         currentStyle = this.dataset.style;
-        propStyle.value = currentStyle;
         renderPreview();
       });
     });
 
-    // Color swatches
+    // ─── Color swatches ───
     colorPicker.addEventListener('click', function(e) {
       const swatch = e.target.closest('.monogram-customizer__color-swatch');
       if (!swatch) return;
       document.querySelectorAll('.monogram-customizer__color-swatch').forEach(s => s.classList.remove('active'));
       swatch.classList.add('active');
       currentColor = swatch.dataset.color;
-      colorNameEl.textContent = swatch.dataset.name;
-      propColor.value = currentColor;
+      currentColorName = swatch.dataset.name;
+      colorNameEl.textContent = currentColorName;
       renderPreview();
     });
 
-    // Text input
+    // ─── Text input ───
     textInput.addEventListener('input', function() {
       let val = this.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 3);
       this.value = val;
       currentText = val;
       charCount.textContent = val.length;
-      propText.value = val;
 
       if (val.length === 0) {
         errorEl.classList.add('visible');
@@ -417,188 +412,159 @@
       renderPreview();
     });
 
-    /**
-     * Call the server-side preview API via app proxy to generate a permanent
-     * preview image URL. Returns the URL string.
-     */
-    async function generatePreviewUrl() {
-      const encodedColor = encodeURIComponent(currentColor);
-      const apiUrl = '/apps/api/preview?text=' + encodeURIComponent(currentText)
-        + '&style=' + encodeURIComponent(currentStyle)
-        + '&color=' + encodedColor
-        + '&format=json';
+    // ─── Intercept add-to-cart ───
+    // We look for the product form and intercept its submit event.
+    // Instead of letting the form submit normally, we use the Cart AJAX API
+    // to add the item with our custom line item properties.
+    function interceptAddToCart() {
+      // Find the product form
+      const form = document.querySelector('form[action*="/cart/add"]')
+        || document.querySelector('product-form form')
+        || document.querySelector('product-form')?.querySelector('form');
 
-      try {
-        const resp = await fetch(apiUrl, { credentials: 'same-origin' });
-        if (!resp.ok) throw new Error('Preview API returned ' + resp.status);
-        const data = await resp.json();
-        return data.url || '';
-      } catch (err) {
-        console.error('Monogram preview API error:', err);
-        // Fallback: generate a data URL from the overlay canvas
-        return generateCanvasDataUrl();
-      }
-    }
-
-    /**
-     * Fallback: generate a data URL from a small offscreen canvas.
-     */
-    function generateCanvasDataUrl() {
-      const size = 400;
-      const c = document.createElement('canvas');
-      c.width = size;
-      c.height = size;
-      const cx = c.getContext('2d');
-
-      // Light background
-      cx.fillStyle = '#f5f5f5';
-      cx.fillRect(0, 0, size, size);
-
-      // Simple hat silhouette
-      cx.fillStyle = '#e8e8e8';
-      cx.beginPath();
-      cx.moveTo(size * 0.15, size * 0.55);
-      cx.quadraticCurveTo(size * 0.15, size * 0.12, size * 0.5, size * 0.10);
-      cx.quadraticCurveTo(size * 0.85, size * 0.12, size * 0.85, size * 0.55);
-      cx.lineTo(size * 0.15, size * 0.55);
-      cx.fill();
-
-      cx.fillStyle = '#ddd';
-      cx.beginPath();
-      cx.moveTo(size * 0.05, size * 0.58);
-      cx.quadraticCurveTo(size * 0.5, size * 0.50, size * 0.95, size * 0.58);
-      cx.quadraticCurveTo(size * 0.5, size * 0.68, size * 0.05, size * 0.58);
-      cx.fill();
-
-      // Draw text
-      const centerX = size * 0.50;
-      const centerY = size * 0.38;
-      const baseSize = size * 0.12;
-
-      cx.fillStyle = currentColor;
-      cx.textAlign = 'center';
-      cx.textBaseline = 'middle';
-
-      if (currentStyle === 'script') {
-        cx.font = baseSize + 'px "Great Vibes", cursive';
-        cx.fillText(currentText, centerX, centerY);
-      } else {
-        if (currentText.length === 3) {
-          cx.font = 'bold ' + (baseSize * 1.3) + 'px "Montserrat", sans-serif';
-          cx.fillText(currentText[1], centerX, centerY);
-          cx.font = 'bold ' + (baseSize * 0.8) + 'px "Montserrat", sans-serif';
-          cx.fillText(currentText[0], centerX - baseSize * 1.2, centerY);
-          cx.fillText(currentText[2], centerX + baseSize * 1.2, centerY);
-        } else {
-          cx.font = 'bold ' + baseSize + 'px "Montserrat", sans-serif';
-          cx.fillText(currentText, centerX, centerY);
-        }
+      if (!form) {
+        console.warn('Monogram Customizer: Could not find product form');
+        return;
       }
 
-      return c.toDataURL('image/png');
-    }
+      // Also intercept the "Add to cart" button click directly
+      // Dawn theme uses product-form web component which may not fire a standard submit
+      const addToCartBtn = form.querySelector('[type="submit"]')
+        || form.querySelector('button[name="add"]')
+        || form.querySelector('.product-form__submit');
 
-    // Move hidden inputs into the product form and intercept add-to-cart
-    const form = document.querySelector('form[action*="/cart/add"]') || document.querySelector('product-form form');
-    if (form) {
-      const customizer = document.getElementById('monogram-customizer');
-      const hiddenInputs = customizer.querySelectorAll('input[type="hidden"]');
-      hiddenInputs.forEach(input => {
-        form.appendChild(input);
-      });
-
-      // Intercept form submission to generate preview first
-      form.addEventListener('submit', async function(e) {
+      function handleAddToCart(e) {
         // Only intercept if there's monogram text
         if (currentText.length === 0) {
           e.preventDefault();
+          e.stopPropagation();
           errorEl.classList.add('visible');
           textInput.focus();
           return;
         }
 
-        // If already generating, prevent double-submit
-        if (isGeneratingPreview) {
+        // Prevent double-submit
+        if (isAddingToCart) {
           e.preventDefault();
+          e.stopPropagation();
           return;
         }
 
-        // Prevent the default submit, generate preview, then re-submit
         e.preventDefault();
-        isGeneratingPreview = true;
+        e.stopPropagation();
+        isAddingToCart = true;
         loadingEl.classList.add('visible');
 
-        try {
-          const previewUrl = await generatePreviewUrl();
-          propPreviewImage.value = previewUrl;
-          console.log('Monogram preview URL:', previewUrl);
-        } catch (err) {
-          console.error('Failed to generate preview:', err);
-          // Use fallback data URL
-          propPreviewImage.value = generateCanvasDataUrl();
+        // Get the variant ID from the form
+        const formData = new FormData(form);
+        const variantId = formData.get('id')
+          || form.querySelector('[name="id"]')?.value
+          || form.querySelector('input[name="id"]')?.value;
+
+        if (!variantId) {
+          console.error('Monogram Customizer: Could not find variant ID');
+          isAddingToCart = false;
+          loadingEl.classList.remove('visible');
+          form.submit();
+          return;
         }
 
-        isGeneratingPreview = false;
-        loadingEl.classList.remove('visible');
+        // Build the preview image URL (app proxy path)
+        const previewImageUrl = buildPreviewImageUrl();
 
-        // Now submit the form for real
-        // Use requestSubmit if available (triggers native submit without re-triggering our listener)
-        // We need to temporarily remove our listener to avoid infinite loop
-        form.removeEventListener('submit', arguments.callee);
+        // Build properties
+        const properties = {
+          '_monogram_text': currentText,
+          '_monogram_style': currentStyle,
+          '_thread_color': currentColor,
+          'Monogram Preview': previewImageUrl
+        };
 
-        // Use the Shopify Cart AJAX API directly to add the item with properties
-        const formData = new FormData(form);
-        const variantId = formData.get('id') || form.querySelector('[name="id"]')?.value;
+        console.log('Monogram: Adding to cart with properties:', properties);
 
-        if (variantId) {
-          const properties = {};
-          properties['_monogram_text'] = propText.value;
-          properties['_monogram_style'] = propStyle.value;
-          properties['_thread_color'] = propColor.value;
-          if (propPreviewImage.value) {
-            properties['Monogram Preview'] = propPreviewImage.value;
+        // Use Shopify Cart AJAX API
+        fetch('/cart/add.js', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: parseInt(variantId),
+            quantity: parseInt(formData.get('quantity') || '1'),
+            properties: properties
+          })
+        })
+        .then(function(resp) {
+          if (!resp.ok) {
+            return resp.text().then(function(t) { throw new Error(t); });
           }
+          return resp.json();
+        })
+        .then(function(item) {
+          console.log('Monogram: Added to cart successfully:', item);
 
-          try {
-            const resp = await fetch('/cart/add.js', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                id: parseInt(variantId),
-                quantity: parseInt(formData.get('quantity') || '1'),
-                properties: properties
-              })
-            });
+          // Dispatch events for the theme to pick up
+          document.dispatchEvent(new CustomEvent('cart:refresh'));
+          document.dispatchEvent(new CustomEvent('cart:updated'));
 
-            if (resp.ok) {
-              // Trigger cart drawer open or redirect to cart
-              // Dispatch a custom event that Dawn theme listens for
-              document.dispatchEvent(new CustomEvent('cart:refresh'));
+          // Try to trigger Dawn theme's cart drawer/notification
+          // Dawn uses fetch to /cart/add.js and then updates the cart drawer
+          // We need to fetch the cart drawer section and update it
+          var sections = 'cart-notification-product,cart-notification-button,cart-icon-bubble,cart-drawer';
+          fetch('/?sections=' + sections)
+            .then(function(r) { return r.json(); })
+            .then(function(sectionData) {
+              // Update each section in the DOM
+              Object.keys(sectionData).forEach(function(sectionId) {
+                var el = document.getElementById('shopify-section-' + sectionId);
+                if (el) {
+                  el.innerHTML = sectionData[sectionId];
+                }
+              });
 
-              // Try to open the cart drawer (Dawn theme)
-              const cartDrawer = document.querySelector('cart-notification') || document.querySelector('cart-drawer');
-              if (cartDrawer && typeof cartDrawer.open === 'function') {
-                cartDrawer.open();
+              // Try to open the cart drawer
+              var cartDrawer = document.querySelector('cart-drawer');
+              if (cartDrawer) {
+                var openBtn = cartDrawer.querySelector('#CartDrawer');
+                if (openBtn) {
+                  openBtn.classList.add('active');
+                  openBtn.setAttribute('open', '');
+                }
+                if (typeof cartDrawer.open === 'function') {
+                  cartDrawer.open();
+                }
               }
 
-              // Refresh the page cart state
+              // Try cart notification
+              var cartNotification = document.querySelector('cart-notification');
+              if (cartNotification && typeof cartNotification.open === 'function') {
+                cartNotification.open();
+              }
+            })
+            .catch(function() {
+              // If section rendering fails, just redirect to cart
               window.location.href = '/cart';
-            } else {
-              console.error('Cart add failed:', await resp.text());
-              // Fallback: submit the form normally
-              form.submit();
-            }
-          } catch (err) {
-            console.error('Cart AJAX error:', err);
-            form.submit();
-          }
-        } else {
-          form.submit();
-        }
-      });
+            });
+        })
+        .catch(function(err) {
+          console.error('Monogram: Cart add failed:', err);
+          // Fallback: redirect to cart page
+          window.location.href = '/cart';
+        })
+        .finally(function() {
+          isAddingToCart = false;
+          loadingEl.classList.remove('visible');
+        });
+      }
+
+      // Intercept form submit
+      form.addEventListener('submit', handleAddToCart, true);
+
+      // Also intercept the button click directly as a backup
+      if (addToCartBtn) {
+        addToCartBtn.addEventListener('click', handleAddToCart, true);
+      }
     }
 
-    // Canvas preview rendering — draw on the overlay canvas on top of the product image
+    // ─── Canvas preview rendering ───
     function renderPreview() {
       if (!overlayCanvas || !overlayCtx) return;
 
@@ -652,14 +618,20 @@
       overlayCtx.shadowOffsetY = 0;
     }
 
-    // Wait for fonts and images to load, then init overlay
+    // ─── Init ───
     function waitAndInit() {
       if (document.fonts && document.fonts.ready) {
         document.fonts.ready.then(() => {
-          setTimeout(initOverlay, 500);
+          setTimeout(function() {
+            initOverlay();
+            interceptAddToCart();
+          }, 500);
         });
       } else {
-        setTimeout(initOverlay, 1000);
+        setTimeout(function() {
+          initOverlay();
+          interceptAddToCart();
+        }, 1000);
       }
     }
 

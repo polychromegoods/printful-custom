@@ -2,8 +2,6 @@ import type { LoaderFunctionArgs } from "@remix-run/node";
 import { createCanvas, registerFont } from "canvas";
 import path from "path";
 import fs from "fs";
-import os from "os";
-import { execSync } from "child_process";
 
 // Preview dimensions — good for thumbnails
 const PREVIEW_WIDTH = 400;
@@ -34,48 +32,32 @@ function ensureFontsRegistered() {
 
 ensureFontsRegistered();
 
-// Simple in-memory cache to avoid re-generating the same preview
-const previewCache = new Map<string, { url: string; timestamp: number }>();
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
-
 /**
  * GET /api/preview?text=ABC&style=script&color=%23000000
  *
- * Generates a monogram preview image, uploads it to a public CDN,
- * and returns a JSON response with the permanent image URL.
- *
+ * Generates a monogram preview image and returns it directly as PNG.
+ * 
  * This endpoint is called via Shopify App Proxy at:
  *   /apps/api/preview?text=ABC&style=script&color=%23000000
  *
- * Response: { "url": "https://cdn.example.com/preview-12345.png" }
+ * The app proxy URL itself serves as the permanent image URL.
+ * When stored as a line item property, Shopify will render it as a
+ * thumbnail in cart, checkout, order confirmation, and admin.
+ *
+ * Supports two response formats:
+ *   - format=image (default): Returns raw PNG bytes (for <img src="...">)
+ *   - format=json: Returns { "url": "<app-proxy-image-url>" }
  */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const text = (url.searchParams.get("text") || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
   const style = url.searchParams.get("style") === "block" ? "block" : "script";
   const color = url.searchParams.get("color") || "#000000";
-  const format = url.searchParams.get("format") || "json"; // "json" or "image"
+  const format = url.searchParams.get("format") || "image";
 
   if (!text) {
     return new Response(JSON.stringify({ error: "Missing text parameter" }), {
       status: 400,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-    });
-  }
-
-  // Check cache
-  const cacheKey = `${text}-${style}-${color}`;
-  const cached = previewCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    if (format === "image") {
-      // Redirect to the cached URL
-      return new Response(null, {
-        status: 302,
-        headers: { Location: cached.url, "Access-Control-Allow-Origin": "*" },
-      });
-    }
-    return new Response(JSON.stringify({ url: cached.url }), {
-      status: 200,
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
     });
   }
@@ -118,52 +100,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
 
-  // Save to temp file
-  const tmpPath = path.join(os.tmpdir(), `monogram-preview-${text}-${style}-${Date.now()}.png`);
   const buffer = canvas.toBuffer("image/png");
-  fs.writeFileSync(tmpPath, buffer);
 
-  try {
-    // Upload to public CDN using manus-upload-file
-    const output = execSync(`manus-upload-file ${tmpPath}`, {
-      encoding: "utf-8",
-      timeout: 30000,
-    }).trim();
+  // For JSON format: return the app proxy URL that serves this image
+  if (format === "json") {
+    // Build the app proxy URL for this preview image
+    // The storefront can use this URL directly as an <img> src
+    const encodedColor = encodeURIComponent(color);
+    const imageUrl = `/apps/api/preview?text=${encodeURIComponent(text)}&style=${encodeURIComponent(style)}&color=${encodedColor}&format=image`;
 
-    // Extract the CDN URL
-    let publicUrl = "";
-    const lines = output.split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("https://") || trimmed.startsWith("http://")) {
-        publicUrl = trimmed;
-      }
-      const cdnMatch = trimmed.match(/CDN URL:\s*(https?:\/\/\S+)/);
-      if (cdnMatch) {
-        publicUrl = cdnMatch[1];
-      }
-    }
-
-    if (!publicUrl) {
-      throw new Error(`Failed to get public URL from upload: ${output}`);
-    }
-
-    console.log(`[preview] Generated and uploaded preview: ${publicUrl}`);
-
-    // Cache the result
-    previewCache.set(cacheKey, { url: publicUrl, timestamp: Date.now() });
-
-    // Clean up temp file
-    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
-
-    if (format === "image") {
-      return new Response(null, {
-        status: 302,
-        headers: { Location: publicUrl, "Access-Control-Allow-Origin": "*" },
-      });
-    }
-
-    return new Response(JSON.stringify({ url: publicUrl }), {
+    return new Response(JSON.stringify({ url: imageUrl }), {
       status: 200,
       headers: {
         "Content-Type": "application/json",
@@ -171,32 +117,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         "Access-Control-Allow-Origin": "*",
       },
     });
-  } catch (error: any) {
-    console.error(`[preview] Error uploading preview:`, error.message);
-
-    // Fallback: return the image directly as binary
-    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
-
-    if (format === "image") {
-      return new Response(buffer, {
-        status: 200,
-        headers: {
-          "Content-Type": "image/png",
-          "Access-Control-Allow-Origin": "*",
-        },
-      });
-    }
-
-    // For JSON format, return a data URL as fallback
-    const dataUrl = `data:image/png;base64,${buffer.toString("base64")}`;
-    return new Response(JSON.stringify({ url: dataUrl, fallback: true }), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      },
-    });
   }
+
+  // Default: return the image directly as PNG
+  return new Response(buffer, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=86400",
+      "Access-Control-Allow-Origin": "*",
+    },
+  });
 };
 
 /**

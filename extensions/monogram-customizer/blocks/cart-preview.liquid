@@ -4,9 +4,12 @@
   with the monogram preview image for personalized items.
   Reads the "Monogram Preview" line item property via the Cart AJAX API.
   
+  The preview URL is an app proxy path like:
+    /apps/api/preview?text=ABC&style=script&color=%23000000&format=image
+  
   Note: Shopify checkout and order confirmation automatically render
   image URLs stored in visible line item properties, so this block
-  is only needed for the storefront cart drawer and cart page.
+  is primarily needed for the storefront cart drawer and cart page.
 {% endcomment %}
 
 <script>
@@ -14,7 +17,6 @@
     'use strict';
 
     let debounceTimer = null;
-    let lastCartToken = '';
 
     function replaceCartThumbnails() {
       fetch('/cart.js', { credentials: 'same-origin' })
@@ -22,35 +24,31 @@
         .then(function(cart) {
           if (!cart || !cart.items) return;
 
-          // Avoid re-processing if cart hasn't changed
-          if (cart.token === lastCartToken) return;
-          lastCartToken = cart.token;
-
           cart.items.forEach(function(item, index) {
             // Check for our visible preview image property
             var previewUrl = item.properties && item.properties['Monogram Preview'];
             if (!previewUrl) return;
 
-            // Skip data URLs for cart thumbnails (too large for img src in some browsers)
-            if (previewUrl.startsWith('data:')) return;
-
             // Find all cart item containers in the DOM
+            // Try many selectors to cover Dawn theme cart page, cart drawer, and other themes
             var cartItemSelectors = [
+              // Dawn theme cart drawer
+              'cart-drawer-items .cart-item',
+              '#CartDrawer .cart-item',
+              '#cart-drawer .cart-item',
+              'cart-notification .cart-notification-product',
               // Dawn theme cart page
               'cart-items .cart-item',
               'cart-items tr.cart-item',
               'table.cart-items tbody tr',
-              // Dawn theme cart drawer
-              'cart-drawer-items .cart-item',
-              '#CartDrawer .cart-item',
-              'cart-notification .cart-notification-product',
               // Generic selectors
               '.cart-item',
               '.cart__item',
               '.mini-cart__item',
               '[data-cart-item]',
               '.cart-items__item',
-              '.cart-drawer__item'
+              '.cart-drawer__item',
+              '.cart__row'
             ];
 
             var cartItems = [];
@@ -64,19 +62,30 @@
             var targetItem = cartItems[index];
             if (!targetItem) return;
 
-            // Find the image inside this cart item
-            var img = targetItem.querySelector('img');
-            if (!img) return;
+            // Find all images inside this cart item and replace the first product image
+            var imgs = targetItem.querySelectorAll('img');
+            if (imgs.length === 0) return;
 
-            // Only replace if not already replaced
-            if (img.dataset.monogramReplaced === 'true') return;
+            imgs.forEach(function(img) {
+              // Only replace if not already replaced
+              if (img.dataset.monogramReplaced === 'true') return;
 
-            img.dataset.originalSrc = img.src;
-            img.dataset.monogramReplaced = 'true';
-            img.src = previewUrl;
-            img.srcset = '';
-            if (img.dataset.src) img.dataset.src = previewUrl;
-            if (img.dataset.srcset) img.dataset.srcset = '';
+              // Make the preview URL absolute if it's a relative app proxy path
+              var fullUrl = previewUrl;
+              if (previewUrl.startsWith('/')) {
+                fullUrl = window.location.origin + previewUrl;
+              }
+
+              img.dataset.originalSrc = img.src;
+              img.dataset.monogramReplaced = 'true';
+              img.src = fullUrl;
+              img.srcset = '';
+              // Clear lazy-loading attributes
+              if (img.dataset.src) img.dataset.src = fullUrl;
+              if (img.dataset.srcset) img.dataset.srcset = '';
+              // Remove any width/height constraints that might distort
+              img.style.objectFit = 'contain';
+            });
           });
         })
         .catch(function(err) {
@@ -97,10 +106,16 @@
     }
 
     // Watch for DOM changes (cart drawer opening, AJAX cart updates)
-    var observer = new MutationObserver(function() {
-      // Reset lastCartToken on DOM change to force re-check
-      lastCartToken = '';
-      debouncedReplace();
+    var observer = new MutationObserver(function(mutations) {
+      // Check if any mutation involves cart-related elements
+      var isCartRelated = mutations.some(function(m) {
+        var target = m.target;
+        if (!target || !target.closest) return true; // default to running
+        return target.closest('[id*="cart" i], [class*="cart" i], cart-drawer, cart-notification, cart-drawer-items');
+      });
+      if (isCartRelated) {
+        debouncedReplace();
+      }
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
@@ -108,6 +123,15 @@
     document.addEventListener('shopify:section:load', debouncedReplace);
     document.addEventListener('cart:updated', debouncedReplace);
     document.addEventListener('cart:refresh', debouncedReplace);
+
+    // Also run periodically for the first few seconds after page load
+    // to catch dynamically loaded cart drawers
+    var runCount = 0;
+    var periodicCheck = setInterval(function() {
+      debouncedReplace();
+      runCount++;
+      if (runCount >= 10) clearInterval(periodicCheck);
+    }, 1000);
   })();
 </script>
 
