@@ -562,10 +562,20 @@ export default function ProductBasesPage() {
       const vc = JSON.parse(template.enabledVariantColors);
       setEnabledVariantColors(vc);
     } catch { setEnabledVariantColors([]); }
-    setPrintAreaX(template.printAreaX);
-    setPrintAreaY(template.printAreaY);
-    setPrintAreaWidth(template.printAreaWidth);
-    setPrintAreaHeight(template.printAreaHeight);
+    // Use registry defaults for print area position (in case config was updated)
+    const editBase = PRODUCT_BASES.find((pb) => pb.slug === template.productBaseSlug);
+    const editPlacement = editBase?.placements.find((p) => p.placementKey === template.placementKey);
+    if (editPlacement) {
+      setPrintAreaX(editPlacement.mockupPosition.x);
+      setPrintAreaY(editPlacement.mockupPosition.y);
+      setPrintAreaWidth(editPlacement.mockupPosition.width);
+      setPrintAreaHeight(editPlacement.mockupPosition.height);
+    } else {
+      setPrintAreaX(template.printAreaX);
+      setPrintAreaY(template.printAreaY);
+      setPrintAreaWidth(template.printAreaWidth);
+      setPrintAreaHeight(template.printAreaHeight);
+    }
     setShopifyProductId(template.shopifyProductId);
     setProductTitle(template.productTitle);
     setProductHandle(template.productHandle || "");

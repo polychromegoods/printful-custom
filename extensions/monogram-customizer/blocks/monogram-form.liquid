@@ -113,20 +113,18 @@
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    border: 2px solid transparent;
+    border: 2px solid #ccc;
     cursor: pointer;
     transition: all 0.2s;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.08);
   }
   .pc-customizer__color-swatch:hover {
     transform: scale(1.15);
+    border-color: #999;
   }
   .pc-customizer__color-swatch.active {
     border-color: #333;
     box-shadow: 0 0 0 2px white, 0 0 0 4px #333;
-  }
-  .pc-customizer__color-swatch[data-hex="#FFFFFF"],
-  .pc-customizer__color-swatch[data-hex="#ffffff"] {
-    border-color: #ddd;
   }
   .pc-customizer__color-name {
     font-size: 11px;
