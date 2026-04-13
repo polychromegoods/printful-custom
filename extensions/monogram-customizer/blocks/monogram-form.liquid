@@ -475,12 +475,19 @@
     }
     if (!firstTextLayer) return '';
 
+    // Detect the current color name for variant-aware preview
+    var colorName = detectSelectedColorName() || '';
+
     var url = '/apps/api/preview?text=' + encodeURIComponent(firstTextLayer.text)
       + '&style=' + encodeURIComponent(firstTextLayer.font)
       + '&color=' + encodeURIComponent(firstTextLayer.color)
       + '&product_id=' + encodeURIComponent(productId)
       + '&variant_id=' + encodeURIComponent(currentVariantId)
+      + '&handle=' + encodeURIComponent(productHandle)
       + '&format=image';
+    if (colorName) {
+      url += '&color_name=' + encodeURIComponent(colorName);
+    }
     if (templateConfig) {
       url += '&template_id=' + encodeURIComponent(templateConfig.id);
     }

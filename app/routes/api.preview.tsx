@@ -3,6 +3,7 @@ import { createCanvas, loadImage, registerFont } from "canvas";
 import path from "path";
 import fs from "fs";
 import db from "../db.server";
+import { getProductBase } from "../config/product-bases";
 
 // Preview dimensions
 const PREVIEW_WIDTH = 600;
@@ -68,6 +69,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const productId = url.searchParams.get("product_id") || "";
   const variantId = url.searchParams.get("variant_id") || "";
   const shop = url.searchParams.get("shop") || "";
+  const colorName = url.searchParams.get("color_name") || "";
 
   if (!text) {
     return new Response(
@@ -142,8 +144,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         // Find best matching mockup image
         let matchedImage = null;
 
+        // Try to match by color name in DB mockups
+        if (colorName) {
+          matchedImage = template.mockupImages.find(
+            (img) => img.variantColor.toLowerCase() === colorName.toLowerCase()
+          );
+        }
+
         // Try to match by variant ID
-        if (gidVariantId) {
+        if (!matchedImage && gidVariantId) {
           matchedImage = template.mockupImages.find(
             (img) => img.shopifyVariantId === gidVariantId
           );
@@ -170,6 +179,30 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
         if (matchedImage) {
           baseImageUrl = matchedImage.imageUrl;
+        }
+
+        // ★ If no DB mockup found for this color, try the registry's variantMockups
+        if (!baseImageUrl || (colorName && !matchedImage?.variantColor?.toLowerCase().includes(colorName.toLowerCase()))) {
+          const productBase = getProductBase(template.productBaseSlug);
+          if (productBase?.variantMockups) {
+            // Try exact color name match
+            const registryUrl = productBase.variantMockups[colorName]
+              || productBase.variantMockups[colorName.charAt(0).toUpperCase() + colorName.slice(1)]
+              || Object.entries(productBase.variantMockups).find(
+                  ([k]) => k.toLowerCase() === colorName.toLowerCase()
+                )?.[1];
+            if (registryUrl) {
+              baseImageUrl = registryUrl;
+              console.log(`[Preview] Using registry mockup for color "${colorName}": ${registryUrl}`);
+            }
+          }
+          // If still no base image, use registry default
+          if (!baseImageUrl && !matchedImage) {
+            const productBase2 = getProductBase(template.productBaseSlug);
+            if (productBase2?.defaultMockupUrl) {
+              baseImageUrl = productBase2.defaultMockupUrl;
+            }
+          }
         }
       }
     } catch (error) {
