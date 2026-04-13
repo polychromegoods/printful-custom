@@ -5,6 +5,39 @@ import fs from "fs";
 import db from "../db.server";
 import { getProductBase } from "../config/product-bases";
 
+/**
+ * Fetch an image URL and return a buffer that node-canvas can load.
+ * node-canvas does NOT support webp, so we detect webp and convert
+ * to PNG using raw pixel manipulation via canvas itself.
+ */
+async function fetchImageBuffer(imageUrl: string): Promise<Buffer> {
+  const resp = await fetch(imageUrl);
+  if (!resp.ok) throw new Error(`Failed to fetch image: ${resp.status}`);
+  const arrayBuf = await resp.arrayBuffer();
+  const buf = Buffer.from(arrayBuf);
+
+  // Check if it's a webp by magic bytes (RIFF....WEBP)
+  const isWebp = buf.length > 12 &&
+    buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+    buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50;
+
+  // Also check URL extension as fallback
+  const urlLower = imageUrl.toLowerCase();
+  if (isWebp || urlLower.endsWith('.webp')) {
+    // Use sharp if available, otherwise try a workaround
+    try {
+      const sharp = require('sharp');
+      return await sharp(buf).png().toBuffer();
+    } catch {
+      // sharp not available — try using the canvas-based decode
+      // This won't work for webp either, so we'll need sharp
+      throw new Error('WebP image detected but sharp is not installed. Run: npm install sharp');
+    }
+  }
+
+  return buf;
+}
+
 // Preview dimensions
 const PREVIEW_WIDTH = 600;
 const PREVIEW_HEIGHT = 600;
@@ -217,7 +250,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (baseImageUrl) {
     // Load and draw the real product base image
     try {
-      const baseImage = await loadImage(baseImageUrl);
+      const imgBuffer = await fetchImageBuffer(baseImageUrl);
+      const baseImage = await loadImage(imgBuffer);
       // Scale to fit canvas while maintaining aspect ratio
       const scale = Math.min(
         PREVIEW_WIDTH / baseImage.width,
