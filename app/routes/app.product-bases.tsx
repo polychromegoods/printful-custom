@@ -31,8 +31,9 @@ import {
   Tag,
   InlineGrid,
   Spinner,
+  DropZone,
 } from "@shopify/polaris";
-import { TitleBar } from "@shopify/app-bridge-react";
+import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { useState, useCallback, useEffect } from "react";
@@ -76,14 +77,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 // ─── Action ──────────────────────────────────────────────────────────────────
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent") as string;
 
   try {
     if (intent === "create_template") {
       const productBaseSlug = formData.get("productBaseSlug") as string;
-      const shopifyProductId = formData.get("shopifyProductId") as string;
+      const rawProductId = formData.get("shopifyProductId") as string;
+      // Normalize to GID format
+      const shopifyProductId = rawProductId.startsWith("gid://")
+        ? rawProductId
+        : rawProductId.match(/^\d+$/)
+          ? `gid://shopify/Product/${rawProductId}`
+          : rawProductId;
       const productTitle = formData.get("productTitle") as string;
       const productHandle = formData.get("productHandle") as string;
       const technique = formData.get("technique") as string;
@@ -186,6 +193,166 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json({ success: true });
     }
 
+    if (intent === "upload_mockup_file") {
+      const templateId = formData.get("templateId") as string;
+      const variantColor = formData.get("variantColor") as string;
+      const variantColorHex = formData.get("variantColorHex") as string;
+      const isDefault = formData.get("isDefault") === "true";
+      const fileBase64 = formData.get("fileBase64") as string;
+      const fileName = formData.get("fileName") as string;
+      const fileSize = formData.get("fileSize") as string;
+      const mimeType = formData.get("mimeType") as string;
+
+      // Step 1: Create staged upload target
+      const stagedRes = await admin.graphql(
+        `#graphql
+        mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
+          stagedUploadsCreate(input: $input) {
+            stagedTargets {
+              url
+              resourceUrl
+              parameters {
+                name
+                value
+              }
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }`,
+        {
+          variables: {
+            input: [{
+              filename: fileName,
+              fileSize: fileSize,
+              mimeType: mimeType,
+              resource: "FILE",
+              httpMethod: "POST",
+            }],
+          },
+        }
+      );
+
+      const stagedData = await stagedRes.json();
+      const target = stagedData.data?.stagedUploadsCreate?.stagedTargets?.[0];
+
+      if (!target) {
+        const errors = stagedData.data?.stagedUploadsCreate?.userErrors;
+        return json({ error: `Staged upload failed: ${JSON.stringify(errors)}` }, { status: 500 });
+      }
+
+      // Step 2: Upload the file to the staged target
+      const uploadForm = new FormData();
+      for (const param of target.parameters) {
+        uploadForm.append(param.name, param.value);
+      }
+
+      // Convert base64 to a Blob
+      const base64Data = fileBase64.split(",").pop() || fileBase64;
+      const binaryStr = atob(base64Data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: mimeType });
+      uploadForm.append("file", blob, fileName);
+
+      const uploadRes = await fetch(target.url, {
+        method: "POST",
+        body: uploadForm,
+      });
+
+      if (!uploadRes.ok) {
+        return json({ error: `File upload failed: ${uploadRes.status} ${uploadRes.statusText}` }, { status: 500 });
+      }
+
+      // Step 3: Create the file in Shopify using the resourceUrl
+      const fileCreateRes = await admin.graphql(
+        `#graphql
+        mutation fileCreate($files: [FileCreateInput!]!) {
+          fileCreate(files: $files) {
+            files {
+              id
+              alt
+              ... on MediaImage {
+                image {
+                  url
+                }
+              }
+              ... on GenericFile {
+                url
+              }
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }`,
+        {
+          variables: {
+            files: [{
+              alt: `Mockup - ${variantColor}`,
+              contentType: "IMAGE",
+              originalSource: target.resourceUrl,
+            }],
+          },
+        }
+      );
+
+      const fileData = await fileCreateRes.json();
+      const createdFile = fileData.data?.fileCreate?.files?.[0];
+      const fileErrors = fileData.data?.fileCreate?.userErrors;
+
+      if (fileErrors && fileErrors.length > 0) {
+        return json({ error: `File create failed: ${JSON.stringify(fileErrors)}` }, { status: 500 });
+      }
+
+      // The image URL may not be immediately available (Shopify processes it async)
+      // Use the resourceUrl as a fallback
+      const imageUrl = createdFile?.image?.url || createdFile?.url || target.resourceUrl;
+
+      // Step 4: Create the MockupImage record
+      await db.mockupImage.create({
+        data: {
+          templateId,
+          variantColor,
+          variantColorHex,
+          imageUrl,
+          isDefault,
+        },
+      });
+
+      return json({ success: true, imageUrl });
+    }
+
+    if (intent === "update_product_id") {
+      const templateId = formData.get("templateId") as string;
+      const rawProductId = formData.get("shopifyProductId") as string;
+      const productTitle = formData.get("productTitle") as string;
+      const productHandle = formData.get("productHandle") as string || "";
+
+      // Normalize to GID format
+      const shopifyProductId = rawProductId.startsWith("gid://")
+        ? rawProductId
+        : rawProductId.match(/^\d+$/)
+          ? `gid://shopify/Product/${rawProductId}`
+          : rawProductId;
+
+      await db.productTemplate.update({
+        where: { id: templateId },
+        data: {
+          shopifyProductId,
+          ...(productTitle ? { productTitle } : {}),
+          ...(productHandle ? { productHandle } : {}),
+        },
+      });
+
+      return json({ success: true });
+    }
+
     if (intent === "toggle_active") {
       const templateId = formData.get("templateId") as string;
       const template = await db.productTemplate.findUnique({ where: { id: templateId } });
@@ -212,6 +379,7 @@ export default function ProductBasesPage() {
   const submit = useSubmit();
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
+  const shopify = useAppBridge();
 
   // Wizard state
   const [showWizard, setShowWizard] = useState(false);
@@ -249,6 +417,16 @@ export default function ProductBasesPage() {
   const [mockupVariantColor, setMockupVariantColor] = useState("");
   const [mockupVariantColorHex, setMockupVariantColorHex] = useState("");
   const [mockupImageUrl, setMockupImageUrl] = useState("");
+  const [mockupFile, setMockupFile] = useState<File | null>(null);
+  const [mockupUploadMode, setMockupUploadMode] = useState<"url" | "file">("file");
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Edit product ID modal
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editTemplateId, setEditTemplateId] = useState("");
+  const [editProductId, setEditProductId] = useState("");
+  const [editProductTitle, setEditProductTitle] = useState("");
+  const [editProductHandle, setEditProductHandle] = useState("");
 
   // Derived state
   const selectedBase = productBases.find((pb) => pb.slug === selectedBaseSlug);
@@ -360,19 +538,86 @@ export default function ProductBasesPage() {
     submit(formData, { method: "post" });
   }, [submit]);
 
-  const handleAddMockup = useCallback(() => {
-    const formData = new FormData();
-    formData.set("intent", "add_mockup");
-    formData.set("templateId", mockupTemplateId);
-    formData.set("variantColor", mockupVariantColor);
-    formData.set("variantColorHex", mockupVariantColorHex);
-    formData.set("imageUrl", mockupImageUrl);
-    formData.set("isDefault", mockupVariantColor === "Default" ? "true" : "false");
-    submit(formData, { method: "post" });
+  const handleAddMockup = useCallback(async () => {
+    if (mockupUploadMode === "file" && mockupFile) {
+      // Upload file via base64
+      setIsUploading(true);
+      try {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(mockupFile);
+        });
+        const base64 = await base64Promise;
+
+        const formData = new FormData();
+        formData.set("intent", "upload_mockup_file");
+        formData.set("templateId", mockupTemplateId);
+        formData.set("variantColor", mockupVariantColor);
+        formData.set("variantColorHex", mockupVariantColorHex);
+        formData.set("isDefault", mockupVariantColor === "Default" ? "true" : "false");
+        formData.set("fileBase64", base64);
+        formData.set("fileName", mockupFile.name);
+        formData.set("fileSize", String(mockupFile.size));
+        formData.set("mimeType", mockupFile.type);
+        submit(formData, { method: "post" });
+      } catch (err) {
+        console.error("File upload error:", err);
+      } finally {
+        setIsUploading(false);
+      }
+    } else {
+      // Use URL directly
+      const formData = new FormData();
+      formData.set("intent", "add_mockup");
+      formData.set("templateId", mockupTemplateId);
+      formData.set("variantColor", mockupVariantColor);
+      formData.set("variantColorHex", mockupVariantColorHex);
+      formData.set("imageUrl", mockupImageUrl);
+      formData.set("isDefault", mockupVariantColor === "Default" ? "true" : "false");
+      submit(formData, { method: "post" });
+    }
     setShowMockupModal(false);
     setMockupImageUrl("");
     setMockupVariantColor("");
-  }, [mockupTemplateId, mockupVariantColor, mockupVariantColorHex, mockupImageUrl, submit]);
+    setMockupFile(null);
+  }, [mockupTemplateId, mockupVariantColor, mockupVariantColorHex, mockupImageUrl, mockupFile, mockupUploadMode, submit]);
+
+  const handleUpdateProductId = useCallback(async () => {
+    // Try Resource Picker first
+    try {
+      const selected = await shopify.resourcePicker({
+        type: "product",
+        multiple: false,
+        action: "select",
+      });
+      if (selected && selected.length > 0) {
+        const product = selected[0];
+        const formData = new FormData();
+        formData.set("intent", "update_product_id");
+        formData.set("templateId", editTemplateId);
+        formData.set("shopifyProductId", product.id);
+        formData.set("productTitle", product.title);
+        formData.set("productHandle", product.handle || "");
+        submit(formData, { method: "post" });
+        setShowEditModal(false);
+      }
+    } catch (error) {
+      console.error("Resource picker error:", error);
+    }
+  }, [shopify, editTemplateId, submit]);
+
+  const handleSaveProductId = useCallback(() => {
+    const formData = new FormData();
+    formData.set("intent", "update_product_id");
+    formData.set("templateId", editTemplateId);
+    formData.set("shopifyProductId", editProductId);
+    formData.set("productTitle", editProductTitle);
+    formData.set("productHandle", editProductHandle);
+    submit(formData, { method: "post" });
+    setShowEditModal(false);
+  }, [editTemplateId, editProductId, editProductTitle, editProductHandle, submit]);
 
   const handleDeleteMockup = useCallback((mockupId: string) => {
     const formData = new FormData();
@@ -733,12 +978,68 @@ export default function ProductBasesPage() {
     </BlockStack>
   );
 
+  const handlePickProduct = useCallback(async () => {
+    try {
+      const selected = await shopify.resourcePicker({
+        type: "product",
+        multiple: false,
+        action: "select",
+      });
+      if (selected && selected.length > 0) {
+        const product = selected[0];
+        setShopifyProductId(product.id); // GID format: gid://shopify/Product/...
+        setProductTitle(product.title);
+        setProductHandle(product.handle || "");
+      }
+    } catch (error) {
+      console.error("Resource picker error:", error);
+    }
+  }, [shopify]);
+
   const renderStep6 = () => (
     <BlockStack gap="400">
       <Text as="h2" variant="headingMd">Step 6: Link Shopify Product</Text>
       <Text as="p" variant="bodyMd" tone="subdued">
-        Enter the Shopify product details. You can find the product ID in the URL
-        when editing a product in Shopify admin (e.g., /products/123456789).
+        Select the Shopify product this template will be linked to.
+        The product picker will set the correct product ID automatically.
+      </Text>
+
+      {shopifyProductId ? (
+        <Banner tone="success">
+          <BlockStack gap="200">
+            <Text as="p" variant="bodyMd">
+              <strong>Selected:</strong> {productTitle}
+            </Text>
+            <Text as="p" variant="bodySm" tone="subdued">
+              ID: {shopifyProductId}
+              {productHandle ? ` — Handle: ${productHandle}` : ""}
+            </Text>
+          </BlockStack>
+        </Banner>
+      ) : null}
+
+      <InlineStack gap="300">
+        <Button variant="primary" onClick={handlePickProduct}>
+          {shopifyProductId ? "Change Product" : "Select Product"}
+        </Button>
+        {shopifyProductId && (
+          <Button
+            variant="plain"
+            tone="critical"
+            onClick={() => {
+              setShopifyProductId("");
+              setProductTitle("");
+              setProductHandle("");
+            }}
+          >
+            Clear Selection
+          </Button>
+        )}
+      </InlineStack>
+
+      <Divider />
+      <Text as="p" variant="bodySm" tone="subdued">
+        Or enter the product ID manually:
       </Text>
       <FormLayout>
         <TextField
@@ -747,7 +1048,7 @@ export default function ProductBasesPage() {
           onChange={setShopifyProductId}
           autoComplete="off"
           placeholder="gid://shopify/Product/123456789 or just 123456789"
-          helpText="The numeric product ID from your Shopify admin URL"
+          helpText="The GID or numeric product ID"
         />
         <TextField
           label="Product Title"
@@ -889,25 +1190,41 @@ export default function ProductBasesPage() {
                         </InlineStack>
                       </IndexTable.Cell>
                       <IndexTable.Cell>
-                        <Button
-                          variant="plain"
-                          onClick={() => handleToggleActive(template.id)}
-                        >
-                          {template.isActive ? (
-                            <Badge tone="success">Active</Badge>
-                          ) : (
-                            <Badge>Inactive</Badge>
-                          )}
-                        </Button>
+                        <InlineStack gap="100" blockAlign="center">
+                          <Badge tone={template.isActive ? "success" : undefined}>
+                            {template.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                          <Button
+                            variant="plain"
+                            size="slim"
+                            onClick={() => handleToggleActive(template.id)}
+                          >
+                            Toggle
+                          </Button>
+                        </InlineStack>
                       </IndexTable.Cell>
                       <IndexTable.Cell>
-                        <Button
-                          variant="plain"
-                          tone="critical"
-                          onClick={() => handleDeleteTemplate(template.id)}
-                        >
-                          Delete
-                        </Button>
+                        <InlineStack gap="200">
+                          <Button
+                            variant="plain"
+                            onClick={() => {
+                              setEditTemplateId(template.id);
+                              setEditProductId(template.shopifyProductId);
+                              setEditProductTitle(template.productTitle);
+                              setEditProductHandle(template.productHandle || "");
+                              setShowEditModal(true);
+                            }}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="plain"
+                            tone="critical"
+                            onClick={() => handleDeleteTemplate(template.id)}
+                          >
+                            Delete
+                          </Button>
+                        </InlineStack>
                       </IndexTable.Cell>
                     </IndexTable.Row>
                   ))}
@@ -962,7 +1279,7 @@ export default function ProductBasesPage() {
             ? [{ content: "Back", onAction: () => setWizardStep(wizardStep - 1) }]
             : [{ content: "Cancel", onAction: () => setShowWizard(false) }]
         }
-        large
+        size="large"
       >
         <Modal.Section>
           {wizardSteps[wizardStep - 1]()}
@@ -975,10 +1292,10 @@ export default function ProductBasesPage() {
         onClose={() => setShowMockupModal(false)}
         title="Add Mockup Image"
         primaryAction={{
-          content: "Add Mockup",
+          content: isUploading ? "Uploading..." : "Add Mockup",
           onAction: handleAddMockup,
-          disabled: !mockupVariantColor || !mockupImageUrl,
-          loading: isLoading,
+          disabled: !mockupVariantColor || (mockupUploadMode === "url" ? !mockupImageUrl : !mockupFile),
+          loading: isLoading || isUploading,
         }}
         secondaryActions={[{ content: "Cancel", onAction: () => setShowMockupModal(false) }]}
       >
@@ -1011,23 +1328,117 @@ export default function ProductBasesPage() {
                 />
               );
             })()}
-            <TextField
-              label="Mockup Image URL"
-              value={mockupImageUrl}
-              onChange={setMockupImageUrl}
-              autoComplete="off"
-              placeholder="https://cdn.shopify.com/... or any public image URL"
-              helpText="Paste a direct URL to the blank mockup image. You can upload images to Shopify Files first."
-            />
-            {mockupImageUrl && (
-              <Box padding="200">
-                <img
-                  src={mockupImageUrl}
-                  alt="Preview"
-                  style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 8 }}
+
+            <InlineStack gap="200">
+              <Button
+                variant={mockupUploadMode === "file" ? "primary" : "plain"}
+                onClick={() => setMockupUploadMode("file")}
+              >
+                Upload File
+              </Button>
+              <Button
+                variant={mockupUploadMode === "url" ? "primary" : "plain"}
+                onClick={() => setMockupUploadMode("url")}
+              >
+                Paste URL
+              </Button>
+            </InlineStack>
+
+            {mockupUploadMode === "file" ? (
+              <DropZone
+                accept="image/*"
+                type="image"
+                onDrop={(_dropFiles, acceptedFiles) => {
+                  if (acceptedFiles.length > 0) {
+                    setMockupFile(acceptedFiles[0]);
+                  }
+                }}
+              >
+                {mockupFile ? (
+                  <Box padding="400">
+                    <BlockStack gap="200" inlineAlign="center">
+                      <Text as="p" variant="bodyMd">
+                        {mockupFile.name} ({(mockupFile.size / 1024).toFixed(1)} KB)
+                      </Text>
+                      <Button variant="plain" onClick={() => setMockupFile(null)}>
+                        Remove
+                      </Button>
+                    </BlockStack>
+                  </Box>
+                ) : (
+                  <DropZone.FileUpload actionHint="Accepts PNG, JPG images" />
+                )}
+              </DropZone>
+            ) : (
+              <>
+                <TextField
+                  label="Mockup Image URL"
+                  value={mockupImageUrl}
+                  onChange={setMockupImageUrl}
+                  autoComplete="off"
+                  placeholder="https://cdn.shopify.com/... or any public image URL"
+                  helpText="Paste a direct URL to the blank mockup image."
                 />
-              </Box>
+                {mockupImageUrl && (
+                  <Box padding="200">
+                    <img
+                      src={mockupImageUrl}
+                      alt="Preview"
+                      style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 8 }}
+                    />
+                  </Box>
+                )}
+              </>
             )}
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+
+      {/* ─── Edit Product ID Modal ─── */}
+      <Modal
+        open={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="Edit Template Product Link"
+        primaryAction={{
+          content: "Pick Product",
+          onAction: handleUpdateProductId,
+          loading: isLoading,
+        }}
+        secondaryActions={[
+          {
+            content: "Save Manual ID",
+            onAction: handleSaveProductId,
+            disabled: !editProductId,
+          },
+          { content: "Cancel", onAction: () => setShowEditModal(false) },
+        ]}
+      >
+        <Modal.Section>
+          <BlockStack gap="400">
+            <Banner tone="info">
+              <Text as="p" variant="bodyMd">
+                Click "Pick Product" to use the Shopify product picker, or manually edit the ID below and click "Save Manual ID".
+              </Text>
+            </Banner>
+            <TextField
+              label="Shopify Product ID"
+              value={editProductId}
+              onChange={setEditProductId}
+              autoComplete="off"
+              helpText="GID format (gid://shopify/Product/...) or numeric ID"
+            />
+            <TextField
+              label="Product Title"
+              value={editProductTitle}
+              onChange={setEditProductTitle}
+              autoComplete="off"
+            />
+            <TextField
+              label="Product Handle"
+              value={editProductHandle}
+              onChange={setEditProductHandle}
+              autoComplete="off"
+            />
           </BlockStack>
         </Modal.Section>
       </Modal>

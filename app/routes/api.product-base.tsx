@@ -19,6 +19,19 @@ import {
  * Called via Shopify App Proxy at:
  *   /apps/api/product-base?product_id=123&variant_id=456
  */
+
+/**
+ * Extract the numeric portion from a Shopify GID or return as-is if already numeric.
+ * e.g. "gid://shopify/Product/15082822238572" → "15082822238572"
+ *      "15082822238572" → "15082822238572"
+ */
+function extractNumericId(id: string): string {
+  if (id.startsWith("gid://")) {
+    const parts = id.split("/");
+    return parts[parts.length - 1];
+  }
+  return id;
+}
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const productId = url.searchParams.get("product_id") || "";
@@ -38,52 +51,64 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     );
   }
 
-  // Build GID format if a plain numeric ID was passed
-  const gidProductId = productId.startsWith("gid://")
-    ? productId
-    : `gid://shopify/Product/${productId}`;
+  // Build both formats for flexible matching
+  const numericId = extractNumericId(productId);
+  const gidProductId = `gid://shopify/Product/${numericId}`;
 
   const gidVariantId = variantId
-    ? variantId.startsWith("gid://")
-      ? variantId
-      : `gid://shopify/ProductVariant/${variantId}`
+    ? `gid://shopify/ProductVariant/${extractNumericId(variantId)}`
     : null;
 
   try {
-    // Find the product template
+    // Find the product template — try multiple ID formats for robust matching
     let template = null;
+    const includeRelations = {
+      layers: { orderBy: { sortOrder: "asc" } as const },
+      mockupImages: { orderBy: { sortOrder: "asc" } as const },
+    };
 
+    // 1. Try GID match with shop filter
     if (shop) {
       template = await db.productTemplate.findFirst({
-        where: {
-          shopifyProductId: gidProductId,
-          shop,
-          isActive: true,
-        },
-        include: {
-          layers: { orderBy: { sortOrder: "asc" } },
-          mockupImages: { orderBy: { sortOrder: "asc" } },
-        },
+        where: { shopifyProductId: gidProductId, shop, isActive: true },
+        include: includeRelations,
       });
     }
 
-    // Fallback: find without shop filter (useful in dev)
+    // 2. GID match without shop filter
     if (!template) {
       template = await db.productTemplate.findFirst({
-        where: {
-          shopifyProductId: gidProductId,
-          isActive: true,
-        },
-        include: {
-          layers: { orderBy: { sortOrder: "asc" } },
-          mockupImages: { orderBy: { sortOrder: "asc" } },
-        },
+        where: { shopifyProductId: gidProductId, isActive: true },
+        include: includeRelations,
+      });
+    }
+
+    // 3. Plain numeric ID match (in case stored without GID prefix)
+    if (!template) {
+      template = await db.productTemplate.findFirst({
+        where: { shopifyProductId: numericId, isActive: true },
+        include: includeRelations,
+      });
+    }
+
+    // 4. Contains match on the numeric portion
+    if (!template) {
+      template = await db.productTemplate.findFirst({
+        where: { shopifyProductId: { contains: numericId }, isActive: true },
+        include: includeRelations,
       });
     }
 
     if (!template) {
       return new Response(
-        JSON.stringify({ found: false }),
+        JSON.stringify({
+          found: false,
+          debug: {
+            searchedGid: gidProductId,
+            searchedNumeric: numericId,
+            shop: shop || "(none)",
+          },
+        }),
         { status: 200, headers }
       );
     }
@@ -152,11 +177,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       // Build lookup map
       if (mockup.shopifyVariantId) {
         variantImageMap[mockup.shopifyVariantId] = mockup.imageUrl;
-        const numericId = mockup.shopifyVariantId.replace(
-          "gid://shopify/ProductVariant/",
-          ""
-        );
-        variantImageMap[numericId] = mockup.imageUrl;
+        const numId = extractNumericId(mockup.shopifyVariantId);
+        variantImageMap[numId] = mockup.imageUrl;
       }
       variantImageMap[mockup.variantColor] = mockup.imageUrl;
       variantImageMap[mockup.variantColor.toLowerCase()] = mockup.imageUrl;
@@ -167,6 +189,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       currentMockupUrl =
         variantImageMap[gidVariantId] ||
         variantImageMap[variantId] ||
+        variantImageMap[extractNumericId(variantId)] ||
         null;
     }
 

@@ -87,26 +87,40 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let printArea = { x: 25, y: 15, width: 50, height: 35 };
 
   if (productId) {
-    const gidProductId = productId.startsWith("gid://")
-      ? productId
-      : `gid://shopify/Product/${productId}`;
+    // Extract numeric ID for flexible matching
+    const numericProductId = productId.startsWith("gid://")
+      ? productId.split("/").pop()!
+      : productId;
+    const gidProductId = `gid://shopify/Product/${numericProductId}`;
     const gidVariantId = variantId
-      ? variantId.startsWith("gid://")
-        ? variantId
-        : `gid://shopify/ProductVariant/${variantId}`
+      ? `gid://shopify/ProductVariant/${variantId.startsWith("gid://") ? variantId.split("/").pop()! : variantId}`
       : null;
 
     try {
-      const template = await db.productTemplate.findFirst({
-        where: {
-          shopifyProductId: gidProductId,
-          isActive: true,
-          ...(shop ? { shop } : {}),
-        },
-        include: {
-          mockupImages: { orderBy: { sortOrder: "asc" } },
-        },
+      // Try multiple ID formats for robust matching
+      const includeOpts = { mockupImages: { orderBy: { sortOrder: "asc" } as const } };
+      let template = await db.productTemplate.findFirst({
+        where: { shopifyProductId: gidProductId, isActive: true, ...(shop ? { shop } : {}) },
+        include: includeOpts,
       });
+      if (!template) {
+        template = await db.productTemplate.findFirst({
+          where: { shopifyProductId: gidProductId, isActive: true },
+          include: includeOpts,
+        });
+      }
+      if (!template) {
+        template = await db.productTemplate.findFirst({
+          where: { shopifyProductId: numericProductId, isActive: true },
+          include: includeOpts,
+        });
+      }
+      if (!template) {
+        template = await db.productTemplate.findFirst({
+          where: { shopifyProductId: { contains: numericProductId }, isActive: true },
+          include: includeOpts,
+        });
+      }
 
       if (template) {
         printArea = {
