@@ -1,0 +1,13 @@
+{
+  "monogram_customizer": {
+    "title": "Personalize Your Hat",
+    "text_label": "Monogram Text",
+    "text_placeholder": "Enter up to 3 letters",
+    "style_label": "Font Style",
+    "style_script": "Script",
+    "style_block": "Block",
+    "color_label": "Thread Color",
+    "preview_label": "Preview",
+    "validation_error": "Please enter 1-3 letters only"
+  }
+}
