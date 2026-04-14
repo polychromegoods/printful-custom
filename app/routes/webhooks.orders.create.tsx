@@ -35,8 +35,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const monogramStyle = properties["_monogram_style"] || "script";
     const threadColor = properties["_thread_color"] || "#000000";
 
-    // Skip if neither new nor legacy personalization data exists
-    if (!personalizationData && !monogramText) {
+    // ─── Image upload field (for tote bags / DTG products) ───
+    const uploadedImageUrl = properties["_uploaded_image_url"];
+
+    // Skip if no personalization data exists (neither template data, legacy monogram, nor uploaded image)
+    if (!personalizationData && !monogramText && !uploadedImageUrl) {
       continue; // Not a personalized item
     }
 
@@ -48,6 +51,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
     if (monogramText) {
       console.log(`  Monogram: "${monogramText}" (${monogramStyle}, ${threadColor})`);
+    }
+    if (uploadedImageUrl) {
+      console.log(`  Uploaded image: ${uploadedImageUrl}`);
     }
 
     // Determine fulfillment provider based on product base
@@ -101,6 +107,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         monogramText: monogramText || null,
         monogramStyle: monogramStyle,
         threadColor: threadColor,
+
+        // Customer uploaded image URL (for DTG/image products like tote bags)
+        printFileUrl: uploadedImageUrl || null,
 
         status: "pending",
       },

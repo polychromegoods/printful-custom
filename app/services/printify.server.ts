@@ -51,14 +51,14 @@ async function printifyRequest(
 // ─── Image Upload ──────────────────────────────────────────────────────────
 
 /**
- * Upload a print file to Printify using base64 encoding.
+ * Upload a print file to Printify using base64 encoding (from local file).
  * Returns the Printify image object with id, file_name, preview_url, etc.
  */
 async function uploadImageToPrintify(
   localPath: string,
   filename: string
 ): Promise<{ id: string; preview_url: string }> {
-  console.log(`[printify] Uploading image: ${filename}`);
+  console.log(`[printify] Uploading image from file: ${filename}`);
 
   const fileBuffer = fs.readFileSync(localPath);
   const base64Data = fileBuffer.toString("base64");
@@ -77,6 +77,52 @@ async function uploadImageToPrintify(
     id: result.id,
     preview_url: result.preview_url,
   };
+}
+
+/**
+ * Upload a print file to Printify using base64 encoding (from base64 string).
+ * Used for customer-uploaded images stored in the database.
+ */
+async function uploadBase64ToPrintify(
+  base64Data: string,
+  filename: string,
+  mimeType: string = "image/png"
+): Promise<{ id: string; preview_url: string }> {
+  console.log(`[printify] Uploading base64 image: ${filename} (${Math.round(base64Data.length / 1024)}KB)`);
+
+  const result = await printifyRequest("/uploads/images.json", "POST", {
+    file_name: filename,
+    contents: base64Data,
+  });
+
+  console.log(`[printify] ✓ Image uploaded: ID=${result.id}`);
+  console.log(`[printify]   Preview: ${result.preview_url}`);
+
+  return {
+    id: result.id,
+    preview_url: result.preview_url,
+  };
+}
+
+/**
+ * Download an image from a URL and return its base64 data.
+ * Used to fetch customer-uploaded images from our server or Shopify CDN.
+ */
+async function downloadImageAsBase64(imageUrl: string): Promise<{ base64: string; mimeType: string }> {
+  console.log(`[printify] Downloading image from: ${imageUrl}`);
+
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const mimeType = response.headers.get("content-type") || "image/png";
+  const base64 = buffer.toString("base64");
+
+  console.log(`[printify] Downloaded: ${buffer.length} bytes, ${mimeType}`);
+
+  return { base64, mimeType };
 }
 
 // ─── Variant Resolution ────────────────────────────────────────────────────
@@ -123,16 +169,64 @@ function resolvePrintifyVariantId(
   return defaultVariant;
 }
 
+// ─── Detect if order has customer-uploaded image ──────────────────────────
+
+function hasCustomerUploadedImage(record: any): boolean {
+  // Check 1: printFileUrl is set and looks like a customer upload
+  if (record.printFileUrl && record.printFileUrl.includes("/api/print-files/cust-")) {
+    return true;
+  }
+
+  // Check 2: personalizationData contains image layers with uploadedUrl
+  try {
+    const persData = JSON.parse(record.personalizationData || "{}");
+    for (const key of Object.keys(persData)) {
+      const layer = persData[key];
+      if (layer.type === "image" && (layer.uploadedUrl || layer.hasImage)) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore parse errors
+  }
+
+  return false;
+}
+
+/**
+ * Get the customer-uploaded image URL from the record.
+ * Checks printFileUrl first, then personalizationData layers.
+ */
+function getCustomerImageUrl(record: any): string | null {
+  // Check printFileUrl first (set by webhook from _uploaded_image_url)
+  if (record.printFileUrl && record.printFileUrl.includes("/api/print-files/")) {
+    return record.printFileUrl;
+  }
+
+  // Check personalizationData layers
+  try {
+    const persData = JSON.parse(record.personalizationData || "{}");
+    for (const key of Object.keys(persData)) {
+      const layer = persData[key];
+      if (layer.type === "image" && layer.uploadedUrl) {
+        return layer.uploadedUrl;
+      }
+    }
+  } catch {
+    // ignore parse errors
+  }
+
+  return null;
+}
+
 // ─── Main Processing Pipeline ──────────────────────────────────────────────
 
 /**
  * Process a personalized order for Printify fulfillment.
  *
- * Flow:
- * 1. Generate the custom print file (PNG) based on personalization data
- * 2. Upload to Printify via base64 (no CDN workaround needed!)
- * 3. Resolve the correct Printify variant ID
- * 4. Create an order in Printify with the custom print file
+ * Supports two flows:
+ * A) Customer-uploaded image (e.g., tote bag): Download the image, upload to Printify
+ * B) Text/monogram personalization: Generate print file, upload to Printify
  */
 export async function processPersonalizedOrderPrintify(
   recordId: string,
@@ -152,72 +246,107 @@ export async function processPersonalizedOrderPrintify(
     console.log(`[printify] Shop: ${record.shop}`);
     console.log(`[printify] Product base: ${record.productBaseSlug || "unknown"}`);
     console.log(`[printify] Technique: ${record.technique || "dtg"}`);
+    console.log(`[printify] PrintFileUrl: ${record.printFileUrl || "none"}`);
 
     const base = getProductBase(record.productBaseSlug!);
     if (!base) {
       throw new Error(`Product base not found: ${record.productBaseSlug}`);
     }
 
-    const technique = record.technique || "dtg";
-    const placementKey = record.placementKey || "front";
+    let printifyImage: { id: string; preview_url: string };
 
-    // Parse personalization data
-    let persData: { layers?: any[] } = {};
-    try {
-      persData = JSON.parse(record.personalizationData || "{}");
-    } catch {
-      console.error("[printify] Failed to parse personalizationData");
-    }
+    // ─── Determine flow: customer image upload vs text/monogram ───
+    const customerImageUrl = getCustomerImageUrl(record);
 
-    const layers: LayerInput[] = (persData.layers || []).map((l: any) => ({
-      key: l.key || "text",
-      type: l.type || "text",
-      value: (l.text || l.value || "").toUpperCase().replace(/[^A-Z0-9 ]/g, ""),
-      font: l.font || "block",
-      color: l.color || "#000000",
-      position: l.position || { x: 10, y: 10, width: 80, height: 80 },
-    }));
+    if (customerImageUrl) {
+      // ═══ FLOW A: Customer-uploaded image (tote bag, DTG) ═══
+      console.log(`[printify] Flow A: Customer-uploaded image`);
+      console.log(`[printify] Image URL: ${customerImageUrl}`);
 
-    // Fallback: use legacy monogram fields
-    if (layers.length === 0 && record.monogramText) {
-      layers.push({
-        key: "main_text",
-        type: "text",
-        value: record.monogramText,
-        font: record.monogramStyle || "block",
-        color: record.threadColor || "#000000",
-        position: { x: 10, y: 10, width: 80, height: 80 },
+      await db.personalizationOrder.update({
+        where: { id: recordId },
+        data: { status: "uploading" },
       });
+
+      // Download the image from our server (or wherever it's stored)
+      const { base64, mimeType } = await downloadImageAsBase64(customerImageUrl);
+
+      // Upload to Printify
+      const orderFilename = `custom-${record.shopifyOrderName.replace("#", "")}-${Date.now()}.png`;
+      printifyImage = await uploadBase64ToPrintify(base64, orderFilename, mimeType);
+
+      console.log(`[printify] ✓ Customer image uploaded to Printify: ${printifyImage.id}`);
+
+    } else {
+      // ═══ FLOW B: Text/monogram personalization ═══
+      console.log(`[printify] Flow B: Text/monogram personalization`);
+
+      const technique = record.technique || "dtg";
+      const placementKey = record.placementKey || "front";
+
+      // Parse personalization data
+      let persData: { layers?: any[] } = {};
+      try {
+        persData = JSON.parse(record.personalizationData || "{}");
+      } catch {
+        console.error("[printify] Failed to parse personalizationData");
+      }
+
+      const layers: LayerInput[] = (persData.layers || []).map((l: any) => ({
+        key: l.key || "text",
+        type: l.type || "text",
+        value: (l.text || l.value || "").toUpperCase().replace(/[^A-Z0-9 ]/g, ""),
+        font: l.font || "block",
+        color: l.color || "#000000",
+        position: l.position || { x: 10, y: 10, width: 80, height: 80 },
+      }));
+
+      // Fallback: use legacy monogram fields
+      if (layers.length === 0 && record.monogramText) {
+        layers.push({
+          key: "main_text",
+          type: "text",
+          value: record.monogramText,
+          font: record.monogramStyle || "block",
+          color: record.threadColor || "#000000",
+          position: { x: 10, y: 10, width: 80, height: 80 },
+        });
+      }
+
+      console.log(`[printify] Generating print file with ${layers.length} layers`);
+
+      // Generate the print file
+      const printFilePath = await generatePrintFileAsync({
+        productBaseSlug: record.productBaseSlug!,
+        technique,
+        placementKey,
+        layers,
+      });
+
+      console.log(`[printify] Print file generated: ${printFilePath}`);
+
+      // Upload to Printify (base64)
+      await db.personalizationOrder.update({
+        where: { id: recordId },
+        data: { status: "uploading" },
+      });
+
+      const orderFilename = `monogram-${record.shopifyOrderName.replace("#", "")}-${Date.now()}.png`;
+      printifyImage = await uploadImageToPrintify(printFilePath, orderFilename);
+
+      console.log(`[printify] ✓ Print file uploaded to Printify: ${printifyImage.id}`);
+
+      // Clean up temp file
+      try {
+        fs.unlinkSync(printFilePath);
+      } catch {
+        // Ignore cleanup errors
+      }
     }
 
-    console.log(`[printify] Generating print file with ${layers.length} layers`);
+    // ─── Common: Create the Printify order ───
 
-    // 2. Generate the print file
-    const printFilePath = await generatePrintFileAsync({
-      productBaseSlug: record.productBaseSlug!,
-      technique,
-      placementKey,
-      layers,
-    });
-
-    console.log(`[printify] Print file generated: ${printFilePath}`);
-
-    // 3. Upload to Printify (base64 — much simpler than Printful!)
-    await db.personalizationOrder.update({
-      where: { id: recordId },
-      data: { status: "uploading" },
-    });
-
-    const orderFilename = `monogram-${record.shopifyOrderName.replace("#", "")}-${Date.now()}.png`;
-
-    const printifyImage = await uploadImageToPrintify(
-      printFilePath,
-      orderFilename
-    );
-
-    console.log(`[printify] ✓ Image uploaded to Printify: ${printifyImage.id}`);
-
-    // 4. Resolve the Printify variant ID
+    // Resolve the Printify variant ID
     const printifyVariantId = resolvePrintifyVariantId(
       base,
       record.shopifyVariantId,
@@ -236,7 +365,7 @@ export async function processPersonalizedOrderPrintify(
       },
     });
 
-    // 5. Build the Printify order
+    // Build the Printify order
     const shipping = shopifyOrder.shipping_address || {};
     const recipientName =
       `${shipping.first_name || ""} ${shipping.last_name || ""}`.trim() ||
@@ -296,7 +425,7 @@ export async function processPersonalizedOrderPrintify(
     const printifyOrderId = String(orderResult.id);
     const printifyStatus = orderResult.status || "pending";
 
-    // 6. Update record as completed
+    // Update record as completed
     await db.personalizationOrder.update({
       where: { id: recordId },
       data: {
@@ -311,12 +440,6 @@ export async function processPersonalizedOrderPrintify(
     );
     console.log(`[printify] ═══════════════════════════════════════════════`);
 
-    // Clean up temp file
-    try {
-      fs.unlinkSync(printFilePath);
-    } catch {
-      // Ignore cleanup errors
-    }
   } catch (error: any) {
     console.error(
       `[printify] ✗ Error processing order ${recordId}:`,

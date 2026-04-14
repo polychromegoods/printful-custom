@@ -547,6 +547,138 @@
   // Start observing cart drawer
   setupCartDrawerObserver();
 
+  // ─── Upload customer image to server ───
+  // Uploads a base64 dataURL image to the Railway server and returns the stored URL.
+  // This is needed because base64 images are too large for Shopify line item properties.
+  function uploadCustomerImage(dataUrl) {
+    console.log('[Customizer] Uploading customer image to server...');
+    return originalFetch.call(window, appBaseUrl + '/api/upload-customer-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl }),
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+      if (data.success && data.url) {
+        console.log('[Customizer] ✓ Image uploaded:', data.url);
+        return data.url;
+      } else {
+        console.error('[Customizer] Image upload failed:', data.error);
+        throw new Error(data.error || 'Upload failed');
+      }
+    });
+  }
+
+  // ─── Collect all image layers that need uploading ───
+  function getImageLayersToUpload() {
+    var imageLayers = [];
+    var layerIds = Object.keys(layerStates);
+    for (var i = 0; i < layerIds.length; i++) {
+      var ls = layerStates[layerIds[i]];
+      if (ls.type === 'image' && ls.imageDataUrl) {
+        imageLayers.push({ id: layerIds[i], dataUrl: ls.imageDataUrl });
+      }
+    }
+    return imageLayers;
+  }
+
+  // ─── Inject personalization properties into cart body ───
+  function injectProperties(body, isFormData, uploadedImageUrls) {
+    var layerIds = Object.keys(layerStates);
+
+    // Build personalization data JSON
+    var persData = {};
+    layerIds.forEach(function(lid) {
+      var ls = layerStates[lid];
+      if (ls.type === 'text' && ls.text) {
+        persData[lid] = { type: 'text', text: ls.text, font: ls.font, color: ls.color, label: ls.label };
+      } else if (ls.type === 'image' && ls.imageDataUrl) {
+        persData[lid] = { type: 'image', hasImage: true, label: ls.label, uploadedUrl: uploadedImageUrls[lid] || '' };
+      }
+    });
+
+    // Find first text layer for legacy fields
+    var firstText = null;
+    layerIds.forEach(function(lid) {
+      if (!firstText && layerStates[lid].type === 'text' && layerStates[lid].text) {
+        firstText = layerStates[lid];
+      }
+    });
+
+    // Build summary
+    var summaryParts = [];
+    layerIds.forEach(function(lid) {
+      var ls = layerStates[lid];
+      if (ls.type === 'text' && ls.text) {
+        summaryParts.push(ls.text + ' (' + ls.font + ', ' + ls.color + ')');
+      } else if (ls.type === 'image' && ls.imageDataUrl) {
+        summaryParts.push('Custom Image');
+      }
+    });
+
+    var previewUrl = buildPreviewImageUrl();
+
+    // Collect all uploaded image URLs into a single property
+    var allUploadedUrls = [];
+    Object.keys(uploadedImageUrls).forEach(function(lid) {
+      if (uploadedImageUrls[lid]) allUploadedUrls.push(uploadedImageUrls[lid]);
+    });
+
+    if (isFormData) {
+      body.append('properties[_personalization_data]', JSON.stringify(persData));
+      body.append('properties[_template_id]', templateConfig ? templateConfig.id : '');
+      body.append('properties[_product_base]', templateConfig ? templateConfig.productBaseSlug : '');
+      body.append('properties[_technique]', templateConfig ? templateConfig.technique : '');
+      body.append('properties[_placement]', templateConfig ? templateConfig.placementKey : '');
+
+      if (firstText) {
+        body.append('properties[_monogram_text]', firstText.text);
+        body.append('properties[_monogram_style]', firstText.font);
+        body.append('properties[_thread_color]', firstText.color);
+      }
+      if (previewUrl) {
+        body.append('properties[_preview_image]', previewUrl);
+      }
+      if (allUploadedUrls.length > 0) {
+        body.append('properties[_uploaded_image_url]', allUploadedUrls[0]);
+      }
+      if (summaryParts.length > 0) {
+        body.append('properties[Personalization]', summaryParts.join('; '));
+      }
+
+      console.log('[Customizer] Injected properties into FormData cart/add.js');
+      return body;
+    } else {
+      // JSON string body
+      var parsed = JSON.parse(body);
+      if (!parsed.properties) parsed.properties = {};
+
+      parsed.properties['_personalization_data'] = JSON.stringify(persData);
+      parsed.properties['_template_id'] = templateConfig ? templateConfig.id : '';
+      parsed.properties['_product_base'] = templateConfig ? templateConfig.productBaseSlug : '';
+      parsed.properties['_technique'] = templateConfig ? templateConfig.technique : '';
+      parsed.properties['_placement'] = templateConfig ? templateConfig.placementKey : '';
+
+      if (firstText) {
+        parsed.properties['_monogram_text'] = firstText.text;
+        parsed.properties['_monogram_style'] = firstText.font;
+        parsed.properties['_thread_color'] = firstText.color;
+      }
+      if (previewUrl) {
+        parsed.properties['_preview_image'] = previewUrl;
+      }
+      if (allUploadedUrls.length > 0) {
+        parsed.properties['_uploaded_image_url'] = allUploadedUrls[0];
+      }
+      if (summaryParts.length > 0) {
+        parsed.properties['Personalization'] = summaryParts.join('; ');
+      }
+
+      console.log('[Customizer] Injected properties into JSON cart/add.js');
+      return JSON.stringify(parsed);
+    }
+  }
+
   // ─── Monkey-patch fetch for cart/add.js ───
   var originalFetch = window.fetch;
   window.fetch = function(url, options) {
@@ -563,115 +695,54 @@
       }
 
       if (hasPersonalization) {
-        try {
-          var body = options.body;
-          if (body instanceof FormData) {
-            // Add personalization data as JSON blob
-            var persData = {};
-            layerIds.forEach(function(lid) {
-              var ls = layerStates[lid];
-              if (ls.type === 'text' && ls.text) {
-                persData[lid] = { type: 'text', text: ls.text, font: ls.font, color: ls.color, label: ls.label };
-              } else if (ls.type === 'image' && ls.imageDataUrl) {
-                persData[lid] = { type: 'image', hasImage: true, label: ls.label };
-              }
+        var imageLayers = getImageLayersToUpload();
+
+        if (imageLayers.length > 0) {
+          // ★ ASYNC PATH: Upload images first, then proceed with cart add
+          console.log('[Customizer] Uploading ' + imageLayers.length + ' image(s) before cart add...');
+
+          var self = this;
+          var args = arguments;
+          var uploadedImageUrls = {};
+
+          // Upload all images in parallel
+          var uploadPromises = imageLayers.map(function(il) {
+            return uploadCustomerImage(il.dataUrl).then(function(uploadedUrl) {
+              uploadedImageUrls[il.id] = uploadedUrl;
+            }).catch(function(err) {
+              console.error('[Customizer] Failed to upload image for layer ' + il.id + ':', err);
+              // Continue anyway — the order will still go through, just without the image URL
+              uploadedImageUrls[il.id] = '';
             });
+          });
 
-            body.append('properties[_personalization_data]', JSON.stringify(persData));
-            body.append('properties[_template_id]', templateConfig ? templateConfig.id : '');
-            body.append('properties[_product_base]', templateConfig ? templateConfig.productBaseSlug : '');
-            body.append('properties[_technique]', templateConfig ? templateConfig.technique : '');
-            body.append('properties[_placement]', templateConfig ? templateConfig.placementKey : '');
-
-            // Legacy compat: also add monogram fields from first text layer
-            var firstText = null;
-            layerIds.forEach(function(lid) {
-              if (!firstText && layerStates[lid].type === 'text' && layerStates[lid].text) {
-                firstText = layerStates[lid];
+          return Promise.all(uploadPromises).then(function() {
+            console.log('[Customizer] All images uploaded, proceeding with cart add');
+            try {
+              var body = options.body;
+              if (body instanceof FormData) {
+                injectProperties(body, true, uploadedImageUrls);
+              } else if (typeof body === 'string') {
+                options.body = injectProperties(body, false, uploadedImageUrls);
               }
-            });
-            if (firstText) {
-              body.append('properties[_monogram_text]', firstText.text);
-              body.append('properties[_monogram_style]', firstText.font);
-              body.append('properties[_thread_color]', firstText.color);
+            } catch (e) {
+              console.warn('[Customizer] Could not inject properties:', e);
             }
-
-            // Set server-side preview image URL for cart thumbnail
-            var previewUrl = buildPreviewImageUrl();
-            if (previewUrl) {
-              body.append('properties[_preview_image]', previewUrl);
+            return originalFetch.apply(self, args);
+          });
+        } else {
+          // ★ SYNC PATH: No images to upload, inject properties immediately
+          try {
+            var body = options.body;
+            var uploadedImageUrls2 = {};
+            if (body instanceof FormData) {
+              injectProperties(body, true, uploadedImageUrls2);
+            } else if (typeof body === 'string') {
+              options.body = injectProperties(body, false, uploadedImageUrls2);
             }
-
-            // Visible personalization summary for checkout/order confirmation
-            var summaryParts = [];
-            layerIds.forEach(function(lid) {
-              var ls = layerStates[lid];
-              if (ls.type === 'text' && ls.text) {
-                summaryParts.push(ls.text + ' (' + ls.font + ', ' + ls.color + ')');
-              } else if (ls.type === 'image' && ls.imageDataUrl) {
-                summaryParts.push('Custom Image');
-              }
-            });
-            if (summaryParts.length > 0) {
-              body.append('properties[Personalization]', summaryParts.join('; '));
-            }
-
-            console.log('[Customizer] Injected properties into FormData cart/add.js');
-          } else if (typeof body === 'string') {
-            var parsed = JSON.parse(body);
-            if (!parsed.properties) parsed.properties = {};
-
-            var persData2 = {};
-            layerIds.forEach(function(lid) {
-              var ls = layerStates[lid];
-              if (ls.type === 'text' && ls.text) {
-                persData2[lid] = { type: 'text', text: ls.text, font: ls.font, color: ls.color, label: ls.label };
-              } else if (ls.type === 'image' && ls.imageDataUrl) {
-                persData2[lid] = { type: 'image', hasImage: true, label: ls.label };
-              }
-            });
-
-            parsed.properties['_personalization_data'] = JSON.stringify(persData2);
-            parsed.properties['_template_id'] = templateConfig ? templateConfig.id : '';
-            parsed.properties['_product_base'] = templateConfig ? templateConfig.productBaseSlug : '';
-            parsed.properties['_technique'] = templateConfig ? templateConfig.technique : '';
-            parsed.properties['_placement'] = templateConfig ? templateConfig.placementKey : '';
-
-            var firstText2 = null;
-            layerIds.forEach(function(lid) {
-              if (!firstText2 && layerStates[lid].type === 'text' && layerStates[lid].text) {
-                firstText2 = layerStates[lid];
-              }
-            });
-            if (firstText2) {
-              parsed.properties['_monogram_text'] = firstText2.text;
-              parsed.properties['_monogram_style'] = firstText2.font;
-              parsed.properties['_thread_color'] = firstText2.color;
-            }
-
-            var previewUrl2 = buildPreviewImageUrl();
-            if (previewUrl2) {
-              parsed.properties['_preview_image'] = previewUrl2;
-            }
-
-            var summaryParts2 = [];
-            layerIds.forEach(function(lid) {
-              var ls = layerStates[lid];
-              if (ls.type === 'text' && ls.text) {
-                summaryParts2.push(ls.text + ' (' + ls.font + ', ' + ls.color + ')');
-              } else if (ls.type === 'image' && ls.imageDataUrl) {
-                summaryParts2.push('Custom Image');
-              }
-            });
-            if (summaryParts2.length > 0) {
-              parsed.properties['Personalization'] = summaryParts2.join('; ');
-            }
-
-            options.body = JSON.stringify(parsed);
-            console.log('[Customizer] Injected properties into JSON cart/add.js');
+          } catch (e) {
+            console.warn('[Customizer] Could not inject properties:', e);
           }
-        } catch (e) {
-          console.warn('[Customizer] Could not inject properties:', e);
         }
       }
     }
