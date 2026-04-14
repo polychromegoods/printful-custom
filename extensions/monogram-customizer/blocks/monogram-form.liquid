@@ -845,22 +845,51 @@
     overlayCtx.shadowOffsetX = 1;
     overlayCtx.shadowOffsetY = 1;
 
-    var fontSize = Math.min(w * 0.5, h * 0.85);
+    var isScript = (ls.font === 'script');
+    var isMonogramClassic = (ls.font === 'monogram_classic');
 
-    // For monogram-style (3 chars, middle larger) in block fonts
-    if (ls.text.length === 3 && ls.font !== 'script' && ls.font !== 'monogram_classic') {
-      var bigSize = fontSize * 1.35;
-      var sideSize = fontSize * 0.85;
-      var spacing = w * 0.28;
+    // Traditional monogram layout: 3 chars with block/serif/monogram_classic
+    // Must match server-side drawTextLayer in monogram.server.ts exactly
+    if (ls.text.length === 3 && !isScript &&
+        (ls.font === 'block' || ls.font === 'serif' || ls.font === 'monogram_classic')) {
+      // Same ratios as server: bigSize = min(w*0.45, h*0.75), smallSize = bigSize*0.65
+      var bigSize = Math.min(w * 0.45, h * 0.75);
+      var smallSize = bigSize * 0.65;
 
-      overlayCtx.font = 'bold ' + bigSize + 'px ' + fontFamily;
-      overlayCtx.fillText(ls.text[1], centerX, centerY);
+      var first = ls.text[0];
+      var last = ls.text[1];   // Middle position = last name initial (larger)
+      var middle = ls.text[2];
 
-      overlayCtx.font = 'bold ' + sideSize + 'px ' + fontFamily;
-      overlayCtx.fillText(ls.text[0], centerX - spacing, centerY);
-      overlayCtx.fillText(ls.text[2], centerX + spacing, centerY);
+      // Measure to calculate spacing (same as server)
+      overlayCtx.font = 'bold ' + Math.round(bigSize) + 'px ' + fontFamily;
+      var centerMetrics = overlayCtx.measureText(last);
+      var centerWidth = centerMetrics.width;
+
+      overlayCtx.font = 'bold ' + Math.round(smallSize) + 'px ' + fontFamily;
+      var sideMetrics = overlayCtx.measureText('M');
+      var sideWidth = sideMetrics.width;
+
+      var totalWidth = sideWidth * 2 + centerWidth + w * 0.06;
+      var startX = centerX - totalWidth / 2;
+
+      // Left letter (first initial)
+      overlayCtx.font = 'bold ' + Math.round(smallSize) + 'px ' + fontFamily;
+      overlayCtx.fillText(first, startX + sideWidth / 2, centerY + bigSize * 0.05);
+
+      // Center letter (last initial, larger)
+      overlayCtx.font = 'bold ' + Math.round(bigSize) + 'px ' + fontFamily;
+      overlayCtx.fillText(last, startX + sideWidth + w * 0.03 + centerWidth / 2, centerY);
+
+      // Right letter (middle initial)
+      overlayCtx.font = 'bold ' + Math.round(smallSize) + 'px ' + fontFamily;
+      overlayCtx.fillText(middle, startX + sideWidth + w * 0.06 + centerWidth + sideWidth / 2, centerY + bigSize * 0.05);
     } else {
-      overlayCtx.font = fontSize + 'px ' + fontFamily;
+      // Script or non-3-letter: center the text (same as server)
+      var fontSize = isScript
+        ? Math.min(w * 0.5, h * 0.7)
+        : Math.min(w * 0.4, h * 0.6);
+      var weight = isScript ? '' : 'bold ';
+      overlayCtx.font = weight + Math.round(fontSize) + 'px ' + fontFamily;
       overlayCtx.fillText(ls.text, centerX, centerY);
     }
 
