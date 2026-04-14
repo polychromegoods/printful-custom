@@ -163,17 +163,35 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     // Get the product base from the registry
     const productBase = getProductBase(template.productBaseSlug);
-    if (!productBase) {
+
+    // Also check the DB-managed product base (new system)
+    const dbProductBase = await db.productBaseDef.findFirst({
+      where: { slug: template.productBaseSlug, isActive: true },
+      include: { variants: { where: { isEnabled: true }, orderBy: { sortOrder: "asc" } } },
+    });
+
+    if (!productBase && !dbProductBase) {
       return new Response(
-        JSON.stringify({ found: false, error: "Product base not found in registry" }),
+        JSON.stringify({ found: false, error: "Product base not found in registry or database" }),
         { status: 200, headers }
       );
     }
 
-    // Find the placement spec from the registry
-    const placementSpec = productBase.placements.find(
-      (p) => p.placementKey === template.placementKey
-    );
+    // Find the placement spec from the registry or DB
+    let placementSpec: any = null;
+    if (productBase) {
+      placementSpec = productBase.placements.find(
+        (p) => p.placementKey === template.placementKey
+      );
+    }
+    if (!placementSpec && dbProductBase) {
+      try {
+        const dbPlacements = JSON.parse(dbProductBase.placements);
+        placementSpec = dbPlacements.find(
+          (p: any) => p.placementKey === template.placementKey
+        );
+      } catch {}
+    }
 
     // Parse enabled fonts — if empty or invalid, default to ALL fonts
     let enabledFontKeys: string[] = [];
@@ -212,32 +230,52 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       enabledVariantColors = [];
     }
 
-    // Build variant info from registry
-    const variants =
-      enabledVariantColors.length > 0
-        ? productBase.variants.filter((v) =>
-            enabledVariantColors.includes(v.color)
-          )
-        : productBase.variants;
+    // Build variant info from registry or DB
+    let variants: Array<{ color: string; colorHex: string; size?: string | null; printfulVariantId?: number; printifyVariantId?: number | null }> = [];
+    if (productBase) {
+      variants = enabledVariantColors.length > 0
+        ? productBase.variants.filter((v) => enabledVariantColors.includes(v.color))
+        : [...productBase.variants];
+    } else if (dbProductBase) {
+      const dbVars = dbProductBase.variants.map((v) => ({
+        color: v.color,
+        colorHex: v.colorHex,
+        size: v.size,
+        printfulVariantId: v.printfulVariantId || 0,
+        printifyVariantId: v.printifyVariantId,
+      }));
+      variants = enabledVariantColors.length > 0
+        ? dbVars.filter((v) => enabledVariantColors.includes(v.color))
+        : dbVars;
+    }
 
     // Find the best matching mockup image
     let currentMockupUrl: string | null = null;
     const variantImageMap: Record<string, string> = {};
 
     // First, populate from registry's variantMockups (default images per color)
-    // Also map variant Shopify IDs to mockup URLs so the storefront can swap on variant change
-    if (productBase.variantMockups) {
+    if (productBase?.variantMockups) {
       for (const [colorName, url] of Object.entries(productBase.variantMockups)) {
         variantImageMap[colorName] = url;
         variantImageMap[colorName.toLowerCase()] = url;
       }
-      // Map each Shopify variant to its color's mockup
-      // The storefront sends Shopify variant IDs, not color names
       for (const variant of variants) {
         const mockupUrl = productBase.variantMockups[variant.color];
         if (mockupUrl) {
-          // Store by printful variant ID (which may be the Shopify variant ID)
           variantImageMap[String(variant.printfulVariantId)] = mockupUrl;
+        }
+      }
+    }
+
+    // Populate from DB product base variant mockups
+    if (dbProductBase) {
+      for (const dbVar of dbProductBase.variants) {
+        if (dbVar.mockupImageUrl) {
+          variantImageMap[dbVar.color] = dbVar.mockupImageUrl;
+          variantImageMap[dbVar.color.toLowerCase()] = dbVar.mockupImageUrl;
+          if (dbVar.printifyVariantId) {
+            variantImageMap[String(dbVar.printifyVariantId)] = dbVar.mockupImageUrl;
+          }
         }
       }
     }
@@ -268,7 +306,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       currentMockupUrl =
         defaultMockup?.imageUrl ||
         template.mockupImages[0]?.imageUrl ||
-        productBase.defaultMockupUrl ||
+        dbProductBase?.defaultMockupUrl ||
+        productBase?.defaultMockupUrl ||
         null;
     }
 
@@ -320,9 +359,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         template: {
           id: template.id,
           productBaseSlug: template.productBaseSlug,
-          productBaseName: productBase.name,
-          brand: productBase.brand,
-          category: productBase.category,
+          productBaseName: productBase?.name || dbProductBase?.name || "",
+          brand: productBase?.brand || dbProductBase?.brand || "",
+          category: productBase?.category || dbProductBase?.category || "accessory",
           technique: template.technique,
           placementKey: template.placementKey,
           placementName: placementSpec?.displayName || template.placementKey,
@@ -334,9 +373,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           },
           printFileSize: placementSpec
             ? {
-                width: placementSpec.fileSizePx.width,
-                height: placementSpec.fileSizePx.height,
+                width: placementSpec.fileSizePx?.width || placementSpec.fileSizePx?.width,
+                height: placementSpec.fileSizePx?.height || placementSpec.fileSizePx?.height,
                 dpi: placementSpec.dpi,
+              }
+            : dbProductBase
+            ? {
+                width: dbProductBase.printFileWidth,
+                height: dbProductBase.printFileHeight,
+                dpi: dbProductBase.printFileDpi,
               }
             : null,
           layers,
@@ -348,7 +393,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           defaultMockupUrl:
             template.mockupImages.find((m) => m.isDefault)?.imageUrl ||
             template.mockupImages[0]?.imageUrl ||
-            productBase.defaultMockupUrl ||
+            dbProductBase?.defaultMockupUrl ||
+            productBase?.defaultMockupUrl ||
             null,
         },
       }),

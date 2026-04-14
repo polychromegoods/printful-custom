@@ -222,6 +222,106 @@ model PersonalizationOrder {
   @@index([templateId])
 }
 
+// ─── Product Base Definition (DB-managed) ──────────────────────────────────
+// Replaces the hardcoded PRODUCT_BASES array in product-bases.ts.
+// Managed via the admin UI — can be populated from Printify catalog import
+// or created manually.
+model ProductBaseDef {
+  id                  String   @id @default(cuid())
+  shop                String
+
+  // Identifiers
+  slug                String   // e.g. "liberty-bags-oad113"
+  name                String   // e.g. "Cotton Canvas Tote Bag"
+  brand               String   // e.g. "Liberty Bags"
+  model               String   // e.g. "OAD113"
+  category            String   @default("accessory") // hat, shirt, hoodie, bag, accessory
+
+  // Fulfillment provider
+  fulfillmentProvider String   @default("printify") // "printful" | "printify"
+
+  // Printful IDs (if applicable)
+  printfulProductId   Int?     @default(0)
+
+  // Printify IDs (if applicable)
+  printifyBlueprintId Int?
+  printifyProviderId  Int?
+
+  // Techniques available (JSON array: [{"key":"dtg","displayName":"DTG Print","isDefault":true}])
+  techniques          String   @default("[]")
+
+  // Placements (JSON array of placement specs)
+  placements          String   @default("[]")
+
+  // Default print area position on mockup (% of image) — used as starting point
+  defaultPrintAreaX      Float    @default(20)
+  defaultPrintAreaY      Float    @default(20)
+  defaultPrintAreaWidth  Float    @default(60)
+  defaultPrintAreaHeight Float    @default(60)
+
+  // Print file specs
+  printFileWidth      Int      @default(3000)  // pixels
+  printFileHeight     Int      @default(3600)  // pixels
+  printFileDpi        Int      @default(300)
+
+  // Default mockup image URL (fallback)
+  defaultMockupUrl    String?
+
+  // Description (from Printify catalog or manual)
+  description         String?
+
+  // Catalog images from Printify (JSON array of URLs)
+  catalogImages       String   @default("[]")
+
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  variants            ProductBaseVariant[]
+
+  @@unique([shop, slug])
+  @@index([shop])
+}
+
+// ─── Product Base Variant ───────────────────────────────────────────────────
+// A color/size variant within a product base, with its own mockup image
+// and optional print area override.
+model ProductBaseVariant {
+  id                  String   @id @default(cuid())
+  productBaseId       String
+
+  // Variant identifiers
+  color               String   // e.g. "Natural", "Black"
+  colorHex            String   @default("#ffffff")
+  size                String?  // e.g. "S", "M", "L" (null for one-size products)
+
+  // Fulfillment variant IDs
+  printfulVariantId   Int?     @default(0)
+  printifyVariantId   Int?
+
+  // Mockup image for this variant
+  mockupImageUrl      String?  // URL to the blank product photo
+
+  // Print area position override for this variant (% of mockup image)
+  // If null, uses the product base defaults
+  printAreaX          Float?
+  printAreaY          Float?
+  printAreaWidth      Float?
+  printAreaHeight     Float?
+
+  isEnabled           Boolean  @default(true)
+  sortOrder           Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  productBase         ProductBaseDef @relation(fields: [productBaseId], references: [id], onDelete: Cascade)
+
+  @@unique([productBaseId, color, size])
+  @@index([productBaseId])
+}
+
 // ─── Print File Storage ─────────────────────────────────────────────────────
 // Stores generated print files as base64 in the database so they persist
 // across Railway deployments and are always accessible via URL.
