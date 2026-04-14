@@ -238,7 +238,6 @@ async function syncTrackingToShopify(
 
   try {
     // Get the offline session for this shop to access the Admin API
-    const { default: db } = await import("../db.server");
     const session = await db.session.findFirst({
       where: {
         shop: record.shop,
