@@ -212,3 +212,18 @@ model PersonalizationOrder {
   @@index([status])
   @@index([templateId])
 }
+
+// ─── Print File Storage ─────────────────────────────────────────────────────
+// Stores generated print files as base64 in the database so they persist
+// across Railway deployments and are always accessible via URL.
+model PrintFile {
+  id          String   @id @default(cuid())
+  filename    String   @unique  // e.g. "pf-12345.png"
+  mimeType    String   @default("image/png")
+  data        String   // base64-encoded file data
+  orderId     String?  // reference to PersonalizationOrder.id
+  createdAt   DateTime @default(now())
+
+  @@index([filename])
+  @@index([orderId])
+}

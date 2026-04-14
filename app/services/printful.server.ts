@@ -21,14 +21,6 @@ const APP_URL =
   process.env.APP_URL ||
   "https://printful-custom-production.up.railway.app";
 
-// Directory where generated print files are stored and served from
-const PRINT_FILES_DIR = path.join(process.cwd(), "generated-print-files");
-
-// Ensure the directory exists
-if (!fs.existsSync(PRINT_FILES_DIR)) {
-  fs.mkdirSync(PRINT_FILES_DIR, { recursive: true });
-}
-
 // ─── Printful API Helpers ───────────────────────────────────────────────────
 
 async function printfulRequest(
@@ -65,25 +57,84 @@ async function printfulRequest(
 }
 
 /**
- * Save the generated print file to a publicly accessible location
+ * Save the generated print file to the database (as base64)
  * and return the public URL that Printful can download from.
  *
- * Instead of uploading to an external service, we save the file locally
- * and serve it via our /api/print-files/:id route.
+ * Files are stored in PostgreSQL so they persist across deployments.
  */
-function savePrintFileAndGetUrl(localPath: string): string {
+async function savePrintFileAndGetUrl(
+  localPath: string,
+  orderId?: string
+): Promise<string> {
   const ext = path.extname(localPath) || ".png";
-  const uniqueId = `pf-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-  const destPath = path.join(PRINT_FILES_DIR, uniqueId);
+  const uniqueFilename = `pf-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 
-  // Copy the file to our serving directory
-  fs.copyFileSync(localPath, destPath);
+  // Read the file and convert to base64
+  const fileBuffer = fs.readFileSync(localPath);
+  const base64Data = fileBuffer.toString("base64");
 
-  const publicUrl = `${APP_URL}/api/print-files/${uniqueId}`;
-  console.log(`[printful] Print file saved: ${uniqueId}`);
+  const mimeTypes: Record<string, string> = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".pdf": "application/pdf",
+  };
+  const mimeType = mimeTypes[ext.toLowerCase()] || "image/png";
+
+  // Store in database
+  await db.printFile.create({
+    data: {
+      filename: uniqueFilename,
+      mimeType,
+      data: base64Data,
+      orderId: orderId || null,
+    },
+  });
+
+  const publicUrl = `${APP_URL}/api/print-files/${uniqueFilename}`;
+  console.log(`[printful] Print file saved to DB: ${uniqueFilename}`);
+  console.log(`[printful] File size: ${fileBuffer.length} bytes`);
   console.log(`[printful] Public URL: ${publicUrl}`);
 
   return publicUrl;
+}
+
+/**
+ * Upload a print file to Printful's File Library using a URL.
+ * Returns the Printful file ID which can be used in orders.
+ *
+ * This is a two-step process:
+ * 1. POST to /files with the URL → Printful downloads and stores the file
+ * 2. Get back the file ID to use in order creation
+ *
+ * If this fails, we fall back to using the URL directly in the order.
+ */
+async function uploadToPrintfulFileLibrary(
+  publicUrl: string,
+  filename: string
+): Promise<number | null> {
+  try {
+    console.log(`[printful] Uploading to Printful File Library: ${publicUrl}`);
+
+    const result = await printfulRequest("/files", "POST", {
+      url: publicUrl,
+      filename: filename,
+      visible: false, // Don't clutter the library
+    });
+
+    const fileId = result.result?.id;
+    if (fileId) {
+      console.log(`[printful] ✓ File uploaded to Printful library: ID ${fileId}`);
+      console.log(`[printful]   Status: ${result.result?.status}`);
+      return fileId;
+    }
+
+    console.log(`[printful] File upload response had no ID:`, JSON.stringify(result));
+    return null;
+  } catch (error: any) {
+    console.error(`[printful] File library upload failed: ${error.message}`);
+    return null;
+  }
 }
 
 // ─── Thread Color Helpers ───────────────────────────────────────────────────
@@ -267,9 +318,10 @@ function getPlacementConfig(placementKey: string): {
  *
  * Flow:
  * 1. Generate the custom print file (PNG) based on personalization data
- * 2. Save it to our server and get a public URL
- * 3. Resolve the correct Printful variant ID
- * 4. Create a draft order in Printful with the custom print file URL
+ * 2. Store it in the database and get a public URL
+ * 3. Upload to Printful's File Library for reliable access
+ * 4. Resolve the correct Printful variant ID
+ * 5. Create a draft order in Printful with the custom print file
  */
 export async function processPersonalizedOrder(
   recordId: string,
@@ -365,15 +417,21 @@ export async function processPersonalizedOrder(
 
     console.log(`[printful] Print file generated: ${printFilePath}`);
 
-    // 3. Save print file to our server and get public URL
+    // 3. Save print file to database and get public URL
     await db.personalizationOrder.update({
       where: { id: recordId },
       data: { status: "uploading" },
     });
 
-    const printFileUrl = savePrintFileAndGetUrl(printFilePath);
+    const printFileUrl = await savePrintFileAndGetUrl(printFilePath, recordId);
 
-    // 4. Resolve the Printful variant ID
+    // 4. Upload to Printful's File Library for reliable access
+    const printfulFileId = await uploadToPrintfulFileLibrary(
+      printFileUrl,
+      `monogram-${record.shopifyOrderName}.png`
+    );
+
+    // 5. Resolve the Printful variant ID
     let printfulVariantId: number;
 
     if (base) {
@@ -393,12 +451,13 @@ export async function processPersonalizedOrder(
       where: { id: recordId },
       data: {
         printFileUrl,
+        printfulFileId: printfulFileId ? String(printfulFileId) : null,
         printfulVariantId,
         status: "submitting",
       },
     });
 
-    // 5. Build the Printful order
+    // 6. Build the Printful order
     const shipping = shopifyOrder.shipping_address || {};
     const { fileType, threadColorsOptionId } =
       getPlacementConfig(placementKey);
@@ -408,17 +467,23 @@ export async function processPersonalizedOrder(
     console.log(`[printful] File type: ${fileType}`);
     console.log(`[printful] Thread color: ${normalizedColor}`);
     console.log(`[printful] Print file URL: ${printFileUrl}`);
+    if (printfulFileId) {
+      console.log(`[printful] Printful file ID: ${printfulFileId}`);
+    }
+
+    // Build the file reference — prefer Printful file ID if available
+    const fileRef: any = { type: fileType };
+    if (printfulFileId) {
+      fileRef.id = printfulFileId;
+    } else {
+      fileRef.url = printFileUrl;
+    }
 
     const itemPayload: any = {
       external_id: record.shopifyVariantId,
       variant_id: printfulVariantId,
       quantity: 1,
-      files: [
-        {
-          type: fileType,
-          url: printFileUrl,
-        },
-      ],
+      files: [fileRef],
     };
 
     // Add thread colors option for embroidery orders
@@ -469,7 +534,7 @@ export async function processPersonalizedOrder(
     const printfulOrderId = String(orderResult.result.id);
     const printfulStatus = orderResult.result.status;
 
-    // 6. Update record as completed
+    // 7. Update record as completed
     await db.personalizationOrder.update({
       where: { id: recordId },
       data: {
@@ -487,7 +552,7 @@ export async function processPersonalizedOrder(
     );
     console.log(`[printful] ═══════════════════════════════════════════════`);
 
-    // Clean up the original temp file (keep the served copy)
+    // Clean up the original temp file (data is now in DB)
     try {
       fs.unlinkSync(printFilePath);
     } catch {
