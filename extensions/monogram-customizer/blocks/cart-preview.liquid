@@ -117,6 +117,10 @@
               if (previewUrl.startsWith('/')) {
                 fullUrl = window.location.origin + previewUrl;
               }
+              // Request smaller thumbnail for cart
+              if (fullUrl.indexOf('size=') === -1) {
+                fullUrl += (fullUrl.indexOf('?') !== -1 ? '&' : '?') + 'size=thumb';
+              }
 
               // Mark as being replaced so we don't double-process
               img.dataset.monogramReplaced = 'true';

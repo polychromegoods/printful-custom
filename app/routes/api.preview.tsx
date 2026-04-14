@@ -5,7 +5,10 @@ import { getSharp } from "../fonts/setup-fonts";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const PREVIEW_SIZE = 600;
+const PREVIEW_SIZE_FULL = 600;
+const PREVIEW_SIZE_THUMB = 300;
+const CACHE_MAX_ENTRIES = 200;
+const MOCKUP_CACHE_MAX = 50;
 
 /**
  * Map font key → SVG font-family name.
@@ -13,14 +16,39 @@ const PREVIEW_SIZE = 600;
  * so that librsvg (used by sharp) can resolve them.
  */
 const SVG_FONT_MAP: Record<string, string> = {
-  script: "Great Vibes",       // TODO: bundle this font
+  script: "Great Vibes",
   block: "Oswald",
   serif: "Playfair Display",
   sans: "Montserrat",
   monogram_classic: "Cormorant Garamond",
 };
 
-// FONTCONFIG_PATH is set by setup-fonts.ts before sharp loads
+// ─── LRU-style Caches ──────────────────────────────────────────────────────
+
+/** Cache for final generated preview images (keyed by all params) */
+const previewCache = new Map<string, { buffer: Buffer; timestamp: number }>();
+
+/** Cache for fetched + resized base mockup images (keyed by URL + size) */
+const mockupCache = new Map<string, { buffer: Buffer; metadata: { width: number; height: number }; timestamp: number }>();
+
+function evictOldest(cache: Map<string, any>, maxEntries: number) {
+  if (cache.size <= maxEntries) return;
+  // Delete oldest entries (first inserted)
+  const excess = cache.size - maxEntries;
+  let count = 0;
+  for (const key of cache.keys()) {
+    if (count >= excess) break;
+    cache.delete(key);
+    count++;
+  }
+}
+
+function buildCacheKey(
+  text: string, style: string, color: string,
+  handle: string, colorName: string, size: number
+): string {
+  return `${text}|${style}|${color}|${handle}|${colorName}|${size}`;
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -35,7 +63,6 @@ function svgEscape(text: string): string {
 
 /**
  * Build an SVG string that renders the monogram text.
- * Coordinates are in pixels relative to a PREVIEW_SIZE × PREVIEW_SIZE canvas.
  */
 function buildTextSvg(
   text: string,
@@ -45,6 +72,7 @@ function buildTextSvg(
   paY: number,
   paW: number,
   paH: number,
+  previewSize: number,
 ): string {
   const fontFamily = SVG_FONT_MAP[style] || "Montserrat";
   const isScript = style === "script";
@@ -53,7 +81,6 @@ function buildTextSvg(
 
   let textElements = "";
 
-  // SVG uses dominant-baseline="central" for vertical centering
   const baseline = 'dominant-baseline="central"';
   const anchor = 'text-anchor="middle"';
   const fill = `fill="${svgEscape(color)}"`;
@@ -64,8 +91,6 @@ function buildTextSvg(
     !isScript &&
     style !== "sans"
   ) {
-    // Traditional monogram: first-LAST(big)-middle
-    // Match monogram.server.ts sizing: bigSize = min(w*0.45, h*0.75), smallSize = bigSize*0.65
     const bigSize = Math.min(paW * 0.45, paH * 0.75);
     const smallSize = bigSize * 0.65;
     const spacing = paW * 0.28;
@@ -74,14 +99,10 @@ function buildTextSvg(
     const last = svgEscape(text[1]);
     const middle = svgEscape(text[2]);
 
-    // Center letter (last initial, larger)
     textElements += `<text x="${centerX}" y="${centerY}" font-family="${fontFamily}" font-size="${Math.round(bigSize)}"${weight} ${fill} ${anchor} ${baseline}>${last}</text>`;
-    // Left letter (first initial)
     textElements += `<text x="${centerX - spacing}" y="${centerY + bigSize * 0.03}" font-family="${fontFamily}" font-size="${Math.round(smallSize)}"${weight} ${fill} ${anchor} ${baseline}>${first}</text>`;
-    // Right letter (middle initial)
     textElements += `<text x="${centerX + spacing}" y="${centerY + bigSize * 0.03}" font-family="${fontFamily}" font-size="${Math.round(smallSize)}"${weight} ${fill} ${anchor} ${baseline}>${middle}</text>`;
   } else {
-    // Script, sans, or non-3-letter: just center the text
     const fontSize = isScript
       ? Math.min(paW * 0.5, paH * 0.7)
       : Math.min(paW * 0.4, paH * 0.6);
@@ -89,8 +110,7 @@ function buildTextSvg(
     textElements = `<text x="${centerX}" y="${centerY}" font-family="${fontFamily}" font-size="${Math.round(fontSize)}"${weight} ${fill} ${anchor} ${baseline}>${escaped}</text>`;
   }
 
-  // Add a subtle drop shadow via SVG filter
-  return `<svg width="${PREVIEW_SIZE}" height="${PREVIEW_SIZE}" xmlns="http://www.w3.org/2000/svg">
+  return `<svg width="${previewSize}" height="${previewSize}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <filter id="shadow" x="-5%" y="-5%" width="115%" height="115%">
       <feDropShadow dx="1" dy="1" stdDeviation="1" flood-color="rgba(0,0,0,0.12)" />
@@ -105,9 +125,9 @@ function buildTextSvg(
 /**
  * Build a simple hat silhouette SVG as fallback when no mockup is available.
  */
-function buildSilhouetteSvg(): string {
-  const w = PREVIEW_SIZE;
-  const h = PREVIEW_SIZE;
+function buildSilhouetteSvg(previewSize: number): string {
+  const w = previewSize;
+  const h = previewSize;
   return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
   <rect width="${w}" height="${h}" fill="#f5f5f5"/>
   <path d="M${w * 0.15},${h * 0.55} Q${w * 0.15},${h * 0.12} ${w * 0.5},${h * 0.1} Q${w * 0.85},${h * 0.12} ${w * 0.85},${h * 0.55} Z" fill="#e8e8e8" stroke="#ccc" stroke-width="1"/>
@@ -115,17 +135,59 @@ function buildSilhouetteSvg(): string {
 </svg>`;
 }
 
+/**
+ * Fetch and cache a base mockup image (resized to target size).
+ */
+async function getCachedMockup(
+  sharpFn: any,
+  imageUrl: string,
+  previewSize: number,
+): Promise<{ resized: Buffer; srcW: number; srcH: number }> {
+  const cacheKey = `${imageUrl}|${previewSize}`;
+  const cached = mockupCache.get(cacheKey);
+  if (cached) {
+    return { resized: cached.buffer, srcW: cached.metadata.width, srcH: cached.metadata.height };
+  }
+
+  const resp = await fetch(imageUrl);
+  if (!resp.ok) throw new Error(`Fetch failed: ${resp.status} for ${imageUrl}`);
+  const imgBuf = Buffer.from(await resp.arrayBuffer());
+
+  const metadata = await sharpFn(imgBuf).metadata();
+  const srcW = metadata.width || previewSize;
+  const srcH = metadata.height || previewSize;
+
+  const resized = await sharpFn(imgBuf)
+    .resize(previewSize, previewSize, {
+      fit: "contain",
+      background: { r: 255, g: 255, b: 255, alpha: 1 },
+    })
+    .png()
+    .toBuffer();
+
+  mockupCache.set(cacheKey, {
+    buffer: resized,
+    metadata: { width: srcW, height: srcH },
+    timestamp: Date.now(),
+  });
+  evictOldest(mockupCache, MOCKUP_CACHE_MAX);
+
+  return { resized, srcW, srcH };
+}
+
 // ─── Main Loader ────────────────────────────────────────────────────────────
 
 /**
- * GET /api/preview?text=ABC&style=serif&color=%23000000&product_id=123&handle=hat-2&color_name=Spruce
+ * GET /api/preview?text=ABC&style=serif&color=%23000000&product_id=123&handle=hat-2&color_name=Spruce&size=thumb
  *
  * Generates a monogram preview image composited onto the real product mockup.
- * Uses sharp (libvips) for all image operations — no node-canvas dependency.
+ * Uses sharp (libvips) for all image operations.
  *
- * Supports two response formats:
- *   - format=image (default): Returns raw PNG bytes
+ * Supports:
+ *   - format=image (default): Returns raw JPEG bytes
  *   - format=json: Returns { "url": "<app-proxy-image-url>" }
+ *   - size=thumb: Returns 300px image (for cart thumbnails)
+ *   - size=full (default): Returns 600px image
  */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
@@ -141,6 +203,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const shop = url.searchParams.get("shop") || "";
   const colorName = url.searchParams.get("color_name") || "";
   const handle = url.searchParams.get("handle") || "";
+  const sizeParam = url.searchParams.get("size") || "full";
+
+  const previewSize = sizeParam === "thumb" ? PREVIEW_SIZE_THUMB : PREVIEW_SIZE_FULL;
 
   if (!text) {
     return new Response(
@@ -153,6 +218,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         },
       },
     );
+  }
+
+  // ─── Check preview cache first ───
+  const cacheKey = buildCacheKey(text, style, color, handle || productId, colorName, previewSize);
+  const cachedPreview = previewCache.get(cacheKey);
+  if (cachedPreview && format === "image") {
+    return new Response(cachedPreview.buffer, {
+      status: 200,
+      headers: {
+        "Content-Type": "image/jpeg",
+        "Cache-Control": "public, max-age=86400",
+        "Access-Control-Allow-Origin": "*",
+        "X-Cache": "HIT",
+      },
+    });
   }
 
   // ─── Resolve the product template and mockup image URL ───
@@ -237,17 +317,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             template.mockupImages[0];
 
           if (matchedImage) {
-            // If we have a color-specific DB match, use it directly
-            // If we only have a generic/default match and a specific color was requested,
-            // try the registry first for the correct color
             const isExactColorMatch = colorName &&
               matchedImage.variantColor.toLowerCase() === colorName.toLowerCase();
 
             if (isExactColorMatch || !colorName) {
               baseImageUrl = matchedImage.imageUrl;
-              console.log(`[Preview] DB mockup (exact match): ${matchedImage.variantColor}`);
             } else {
-              // We have a DB mockup but it's not the right color — try registry first
               if (productBase?.variantMockups) {
                 const registryUrl =
                   productBase.variantMockups[colorName] ||
@@ -256,19 +331,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                   )?.[1];
                 if (registryUrl) {
                   baseImageUrl = registryUrl;
-                  console.log(`[Preview] Registry mockup for "${colorName}": ${registryUrl.slice(-30)}`);
                 }
               }
-              // If registry didn't have it either, use the DB default
               if (!baseImageUrl) {
                 baseImageUrl = matchedImage.imageUrl;
-                console.log(`[Preview] DB mockup (fallback): ${matchedImage.variantColor}`);
               }
             }
           }
         }
 
-        // STEP 2: Registry variantMockups (fallback when no DB mockup at all)
+        // STEP 2: Registry variantMockups
         if (!baseImageUrl && colorName && productBase?.variantMockups) {
           const registryUrl =
             productBase.variantMockups[colorName] ||
@@ -277,17 +349,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             )?.[1];
           if (registryUrl) {
             baseImageUrl = registryUrl;
-            console.log(`[Preview] Registry mockup for "${colorName}": ${registryUrl.slice(-30)}`);
           }
         }
 
         // STEP 3: Registry default
         if (!baseImageUrl && productBase?.defaultMockupUrl) {
           baseImageUrl = productBase.defaultMockupUrl;
-          console.log(`[Preview] Registry default mockup`);
         }
-      } else {
-        console.log(`[Preview] No template found for product_id=${productId} handle=${handle}`);
       }
     } catch (error) {
       console.error("[Preview] Error loading template:", error);
@@ -300,30 +368,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   try {
     if (baseImageUrl) {
-      // Fetch the mockup image
-      const resp = await fetch(baseImageUrl);
-      if (!resp.ok) throw new Error(`Fetch failed: ${resp.status} for ${baseImageUrl}`);
-      const imgBuf = Buffer.from(await resp.arrayBuffer());
-
-      // Resize to PREVIEW_SIZE × PREVIEW_SIZE with white background
-      const resizedBase = await sharpFn(imgBuf)
-        .resize(PREVIEW_SIZE, PREVIEW_SIZE, {
-          fit: "contain",
-          background: { r: 255, g: 255, b: 255, alpha: 1 },
-        })
-        .png()
-        .toBuffer();
+      // Fetch mockup (cached) and get metadata
+      const { resized: resizedBase, srcW, srcH } = await getCachedMockup(sharpFn, baseImageUrl, previewSize);
 
       // Calculate print area in pixel coordinates
-      // The image is "contain" fitted, so we need to figure out the actual image bounds
-      const metadata = await sharpFn(imgBuf).metadata();
-      const srcW = metadata.width || PREVIEW_SIZE;
-      const srcH = metadata.height || PREVIEW_SIZE;
-      const scale = Math.min(PREVIEW_SIZE / srcW, PREVIEW_SIZE / srcH);
+      const scale = Math.min(previewSize / srcW, previewSize / srcH);
       const scaledW = srcW * scale;
       const scaledH = srcH * scale;
-      const offsetX = (PREVIEW_SIZE - scaledW) / 2;
-      const offsetY = (PREVIEW_SIZE - scaledH) / 2;
+      const offsetX = (previewSize - scaledW) / 2;
+      const offsetY = (previewSize - scaledH) / 2;
 
       const paX = offsetX + scaledW * (printArea.x / 100);
       const paY = offsetY + scaledH * (printArea.y / 100);
@@ -331,48 +384,46 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const paH = scaledH * (printArea.height / 100);
 
       // Build SVG text overlay
-      const textSvg = buildTextSvg(text, style, color, paX, paY, paW, paH);
+      const textSvg = buildTextSvg(text, style, color, paX, paY, paW, paH, previewSize);
 
-      // Composite text onto the mockup
+      // Composite text onto the mockup and output as JPEG for speed
       outputBuffer = await sharpFn(resizedBase)
         .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
-        .png()
+        .jpeg({ quality: 80 })
         .toBuffer();
-
-      console.log(`[Preview] Generated ${text} (${style}, ${color}) on ${colorName || "default"}`);
     } else {
       // No mockup available — render silhouette + text
-      const silhouetteSvg = buildSilhouetteSvg();
+      const silhouetteSvg = buildSilhouetteSvg(previewSize);
       const silhouetteBuffer = await sharpFn(Buffer.from(silhouetteSvg))
         .png()
         .toBuffer();
 
-      // Default print area for silhouette
-      const paX = PREVIEW_SIZE * 0.1;
-      const paY = PREVIEW_SIZE * 0.15;
-      const paW = PREVIEW_SIZE * 0.8;
-      const paH = PREVIEW_SIZE * 0.35;
+      const paX = previewSize * 0.1;
+      const paY = previewSize * 0.15;
+      const paW = previewSize * 0.8;
+      const paH = previewSize * 0.35;
 
-      const textSvg = buildTextSvg(text, style, color, paX, paY, paW, paH);
+      const textSvg = buildTextSvg(text, style, color, paX, paY, paW, paH, previewSize);
 
       outputBuffer = await sharpFn(silhouetteBuffer)
         .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
-        .png()
+        .jpeg({ quality: 80 })
         .toBuffer();
-
-      console.log(`[Preview] Generated ${text} on silhouette (no mockup found)`);
     }
   } catch (error) {
     console.error("[Preview] Image generation error:", error);
 
-    // Last-resort fallback: silhouette with text, all via SVG
-    const fallbackSvg = `<svg width="${PREVIEW_SIZE}" height="${PREVIEW_SIZE}" xmlns="http://www.w3.org/2000/svg">
-      <rect width="${PREVIEW_SIZE}" height="${PREVIEW_SIZE}" fill="#f5f5f5"/>
-      <text x="${PREVIEW_SIZE / 2}" y="${PREVIEW_SIZE / 2}" font-family="sans-serif" font-size="60" font-weight="bold"
+    const fallbackSvg = `<svg width="${previewSize}" height="${previewSize}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${previewSize}" height="${previewSize}" fill="#f5f5f5"/>
+      <text x="${previewSize / 2}" y="${previewSize / 2}" font-family="sans-serif" font-size="60" font-weight="bold"
             fill="${svgEscape(color)}" text-anchor="middle" dominant-baseline="central">${svgEscape(text)}</text>
     </svg>`;
-    outputBuffer = await sharpFn(Buffer.from(fallbackSvg)).png().toBuffer();
+    outputBuffer = await sharpFn(Buffer.from(fallbackSvg)).jpeg({ quality: 80 }).toBuffer();
   }
+
+  // ─── Store in cache ───
+  previewCache.set(cacheKey, { buffer: outputBuffer, timestamp: Date.now() });
+  evictOldest(previewCache, CACHE_MAX_ENTRIES);
 
   // ─── Return response ───
   if (format === "json") {
@@ -381,6 +432,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     if (variantId) params.set("variant_id", variantId);
     if (handle) params.set("handle", handle);
     if (colorName) params.set("color_name", colorName);
+    if (sizeParam) params.set("size", sizeParam);
 
     return new Response(
       JSON.stringify({ url: `/apps/api/preview?${params.toString()}` }),
@@ -398,9 +450,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return new Response(outputBuffer, {
     status: 200,
     headers: {
-      "Content-Type": "image/png",
+      "Content-Type": "image/jpeg",
       "Cache-Control": "public, max-age=86400",
       "Access-Control-Allow-Origin": "*",
+      "X-Cache": "MISS",
     },
   });
 };
