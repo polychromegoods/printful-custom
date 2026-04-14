@@ -14,12 +14,7 @@ import {
 
 const PRINTFUL_TOKEN = process.env.PRINTFUL_TOKEN || "";
 const PRINTFUL_API = "https://api.printful.com";
-
-// The public URL of this Railway app — used to serve generated print files
-const APP_URL =
-  process.env.SHOPIFY_APP_URL ||
-  process.env.APP_URL ||
-  "https://printful-custom-production.up.railway.app";
+const API_VERSION = "2025-01";
 
 // ─── Printful API Helpers ───────────────────────────────────────────────────
 
@@ -56,20 +51,201 @@ async function printfulRequest(
   return data;
 }
 
+// ─── Shopify CDN File Upload ────────────────────────────────────────────────
+
 /**
- * Save the generated print file to the database (as base64)
- * and return the public URL that Printful can download from.
+ * Upload a print file to Shopify's CDN using the Admin GraphQL API.
+ * This gives us a cdn.shopify.com URL that Printful will accept.
  *
- * Files are stored in PostgreSQL so they persist across deployments.
+ * Uses the same 3-step pattern as the mockup upload:
+ * 1. stagedUploadsCreate → get upload target URL
+ * 2. POST file to staged target
+ * 3. fileCreate → get CDN URL
+ *
+ * Falls back to storing in our DB and serving from our app URL.
  */
-async function savePrintFileAndGetUrl(
+async function uploadToShopifyCDN(
+  localPath: string,
+  shop: string,
+  filename: string
+): Promise<string> {
+  console.log(`[printful] Uploading print file to Shopify CDN for ${shop}...`);
+
+  // Get the offline session for this shop
+  const session = await db.session.findFirst({
+    where: { shop, isOnline: false },
+  });
+
+  if (!session) {
+    console.error(`[printful] No offline session found for shop ${shop}`);
+    throw new Error(`No offline session for ${shop}`);
+  }
+
+  const accessToken = session.accessToken;
+  const graphqlUrl = `https://${shop}/admin/api/${API_VERSION}/graphql.json`;
+
+  // Read the file
+  const fileBuffer = fs.readFileSync(localPath);
+  const fileSize = String(fileBuffer.length);
+  const mimeType = "image/png";
+
+  console.log(`[printful] File: ${filename}, size: ${fileSize} bytes`);
+
+  // Step 1: Create staged upload target
+  const stagedQuery = JSON.stringify({
+    query: `mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
+      stagedUploadsCreate(input: $input) {
+        stagedTargets {
+          url
+          resourceUrl
+          parameters {
+            name
+            value
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }`,
+    variables: {
+      input: [{
+        filename,
+        fileSize,
+        mimeType,
+        resource: "FILE",
+        httpMethod: "POST",
+      }],
+    },
+  });
+
+  console.log(`[printful] Step 1: Creating staged upload target...`);
+
+  const stagedRes = await fetch(graphqlUrl, {
+    method: "POST",
+    headers: {
+      "X-Shopify-Access-Token": accessToken,
+      "Content-Type": "application/json",
+    },
+    body: stagedQuery,
+  });
+
+  if (!stagedRes.ok) {
+    const errText = await stagedRes.text();
+    throw new Error(`Staged upload failed (${stagedRes.status}): ${errText}`);
+  }
+
+  const stagedData = await stagedRes.json();
+  const target = stagedData.data?.stagedUploadsCreate?.stagedTargets?.[0];
+
+  if (!target) {
+    const errors = stagedData.data?.stagedUploadsCreate?.userErrors;
+    throw new Error(`Staged upload failed: ${JSON.stringify(errors)}`);
+  }
+
+  console.log(`[printful] Step 1 done. Upload URL: ${target.url}`);
+  console.log(`[printful] Resource URL: ${target.resourceUrl}`);
+
+  // Step 2: Upload the file to the staged target
+  console.log(`[printful] Step 2: Uploading file to staged target...`);
+
+  // Build multipart form data manually using the Web API FormData
+  const uploadForm = new FormData();
+  for (const param of target.parameters) {
+    uploadForm.append(param.name, param.value);
+  }
+
+  // Convert buffer to Blob
+  const blob = new Blob([fileBuffer], { type: mimeType });
+  uploadForm.append("file", blob, filename);
+
+  const uploadRes = await fetch(target.url, {
+    method: "POST",
+    body: uploadForm,
+  });
+
+  if (!uploadRes.ok) {
+    const errText = await uploadRes.text();
+    throw new Error(`File upload to staged target failed (${uploadRes.status}): ${errText}`);
+  }
+
+  console.log(`[printful] Step 2 done. File uploaded to staged target.`);
+
+  // Step 3: Create the file in Shopify using the resourceUrl
+  console.log(`[printful] Step 3: Creating file in Shopify...`);
+
+  const fileCreateQuery = JSON.stringify({
+    query: `mutation fileCreate($files: [FileCreateInput!]!) {
+      fileCreate(files: $files) {
+        files {
+          id
+          alt
+          ... on MediaImage {
+            image {
+              url
+            }
+          }
+          ... on GenericFile {
+            url
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }`,
+    variables: {
+      files: [{
+        alt: `Print file - ${filename}`,
+        contentType: "IMAGE",
+        originalSource: target.resourceUrl,
+      }],
+    },
+  });
+
+  const fileCreateRes = await fetch(graphqlUrl, {
+    method: "POST",
+    headers: {
+      "X-Shopify-Access-Token": accessToken,
+      "Content-Type": "application/json",
+    },
+    body: fileCreateQuery,
+  });
+
+  if (!fileCreateRes.ok) {
+    const errText = await fileCreateRes.text();
+    throw new Error(`File create failed (${fileCreateRes.status}): ${errText}`);
+  }
+
+  const fileData = await fileCreateRes.json();
+  const createdFile = fileData.data?.fileCreate?.files?.[0];
+  const fileErrors = fileData.data?.fileCreate?.userErrors;
+
+  if (fileErrors && fileErrors.length > 0) {
+    throw new Error(`File create errors: ${JSON.stringify(fileErrors)}`);
+  }
+
+  // The image URL may not be immediately available (Shopify processes it async)
+  // Use the resourceUrl as a fallback — it's still a valid Shopify CDN URL
+  const cdnUrl = createdFile?.image?.url || createdFile?.url || target.resourceUrl;
+
+  console.log(`[printful] Step 3 done. CDN URL: ${cdnUrl}`);
+
+  return cdnUrl;
+}
+
+/**
+ * Also store the file in our database as a backup.
+ */
+async function savePrintFileToDb(
   localPath: string,
   orderId?: string
 ): Promise<string> {
   const ext = path.extname(localPath) || ".png";
   const uniqueFilename = `pf-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 
-  // Read the file and convert to base64
   const fileBuffer = fs.readFileSync(localPath);
   const base64Data = fileBuffer.toString("base64");
 
@@ -81,7 +257,6 @@ async function savePrintFileAndGetUrl(
   };
   const mimeType = mimeTypes[ext.toLowerCase()] || "image/png";
 
-  // Store in database
   await db.printFile.create({
     data: {
       filename: uniqueFilename,
@@ -91,50 +266,8 @@ async function savePrintFileAndGetUrl(
     },
   });
 
-  const publicUrl = `${APP_URL}/api/print-files/${uniqueFilename}`;
-  console.log(`[printful] Print file saved to DB: ${uniqueFilename}`);
-  console.log(`[printful] File size: ${fileBuffer.length} bytes`);
-  console.log(`[printful] Public URL: ${publicUrl}`);
-
-  return publicUrl;
-}
-
-/**
- * Upload a print file to Printful's File Library using a URL.
- * Returns the Printful file ID which can be used in orders.
- *
- * This is a two-step process:
- * 1. POST to /files with the URL → Printful downloads and stores the file
- * 2. Get back the file ID to use in order creation
- *
- * If this fails, we fall back to using the URL directly in the order.
- */
-async function uploadToPrintfulFileLibrary(
-  publicUrl: string,
-  filename: string
-): Promise<number | null> {
-  try {
-    console.log(`[printful] Uploading to Printful File Library: ${publicUrl}`);
-
-    const result = await printfulRequest("/files", "POST", {
-      url: publicUrl,
-      filename: filename,
-      visible: false, // Don't clutter the library
-    });
-
-    const fileId = result.result?.id;
-    if (fileId) {
-      console.log(`[printful] ✓ File uploaded to Printful library: ID ${fileId}`);
-      console.log(`[printful]   Status: ${result.result?.status}`);
-      return fileId;
-    }
-
-    console.log(`[printful] File upload response had no ID:`, JSON.stringify(result));
-    return null;
-  } catch (error: any) {
-    console.error(`[printful] File library upload failed: ${error.message}`);
-    return null;
-  }
+  console.log(`[printful] Print file also saved to DB: ${uniqueFilename} (${fileBuffer.length} bytes)`);
+  return uniqueFilename;
 }
 
 // ─── Thread Color Helpers ───────────────────────────────────────────────────
@@ -154,33 +287,22 @@ function normalizeThreadColor(color: string): string {
 
 // ─── Variant Resolution ─────────────────────────────────────────────────────
 
-/**
- * Resolve the correct Printful catalog variant ID from the Shopify variant
- * and the product base registry.
- *
- * For hats (one size), we match by color.
- * For shirts (sized), we need to look up the specific size+color combo
- * via the Printful catalog API.
- */
 async function resolvePrintfulVariantId(
   base: ProductBase,
   shopifyVariantId: string,
   shopifyOrder: any
 ): Promise<number> {
-  // First, try to find the variant color from the Shopify line item
   let variantColor = "";
   let variantSize = "";
 
   for (const lineItem of shopifyOrder.line_items || []) {
     if (String(lineItem.variant_id) === shopifyVariantId) {
-      // Extract color and size from variant title (e.g., "White / S")
       const parts = (lineItem.variant_title || "")
         .split("/")
         .map((s: string) => s.trim());
       if (parts.length >= 1) variantColor = parts[0];
       if (parts.length >= 2) variantSize = parts[1];
 
-      // Also check variant options
       if (!variantColor && lineItem.variant_options) {
         variantColor = lineItem.variant_options[0] || "";
       }
@@ -192,7 +314,6 @@ async function resolvePrintfulVariantId(
     `[printful] Resolving variant: color="${variantColor}", size="${variantSize}"`
   );
 
-  // For hats (one size), just match by color
   if (base.category === "hat") {
     const match = base.variants.find(
       (v) => v.color.toLowerCase() === variantColor.toLowerCase()
@@ -203,14 +324,12 @@ async function resolvePrintfulVariantId(
       );
       return match.printfulVariantId;
     }
-    // Default to first variant
     console.log(
       `[printful] No color match for hat, using default variant ${base.variants[0].printfulVariantId}`
     );
     return base.variants[0].printfulVariantId;
   }
 
-  // For sized products (shirts), we need to find the exact color+size combo
   if (base.category === "shirt") {
     try {
       const catalogResult = await printfulRequest(
@@ -218,7 +337,6 @@ async function resolvePrintfulVariantId(
       );
       const variants = catalogResult.result.variants || [];
 
-      // Find matching color + size
       const match = variants.find(
         (v: any) =>
           v.color?.toLowerCase() === variantColor.toLowerCase() &&
@@ -232,7 +350,6 @@ async function resolvePrintfulVariantId(
         return match.id;
       }
 
-      // Try color-only match (default to size S)
       const colorMatch = variants.find(
         (v: any) => v.color?.toLowerCase() === variantColor.toLowerCase()
       );
@@ -246,7 +363,6 @@ async function resolvePrintfulVariantId(
       console.error("[printful] Error looking up catalog variants:", err);
     }
 
-    // Fallback to registry
     const registryMatch = base.variants.find(
       (v) => v.color.toLowerCase() === variantColor.toLowerCase()
     );
@@ -255,7 +371,6 @@ async function resolvePrintfulVariantId(
     }
   }
 
-  // Ultimate fallback
   console.log(
     `[printful] No variant match found, using first variant: ${base.variants[0].printfulVariantId}`
   );
@@ -264,9 +379,6 @@ async function resolvePrintfulVariantId(
 
 // ─── Placement Key Mapping ──────────────────────────────────────────────────
 
-/**
- * Map our placement key to the Printful file type and options key.
- */
 function getPlacementConfig(placementKey: string): {
   fileType: string;
   threadColorsOptionId: string | null;
@@ -275,7 +387,6 @@ function getPlacementConfig(placementKey: string): {
     string,
     { fileType: string; threadColorsOptionId: string | null }
   > = {
-    // Hat embroidery
     embroidery_front: {
       fileType: "embroidery_front",
       threadColorsOptionId: "thread_colors",
@@ -284,7 +395,6 @@ function getPlacementConfig(placementKey: string): {
       fileType: "embroidery_front_large",
       threadColorsOptionId: "thread_colors",
     },
-    // Shirt embroidery
     embroidery_chest_left: {
       fileType: "embroidery_chest_left",
       threadColorsOptionId: "thread_colors_chest_left",
@@ -297,7 +407,6 @@ function getPlacementConfig(placementKey: string): {
       fileType: "embroidery_large_front",
       threadColorsOptionId: "thread_colors_large_front",
     },
-    // DTG / DTF printing
     front: { fileType: "front", threadColorsOptionId: null },
     front_dtf: { fileType: "front", threadColorsOptionId: null },
   };
@@ -314,12 +423,11 @@ function getPlacementConfig(placementKey: string): {
 
 /**
  * Process a personalized order end-to-end.
- * Handles both new template-based orders and legacy monogram orders.
  *
  * Flow:
  * 1. Generate the custom print file (PNG) based on personalization data
- * 2. Store it in the database and get a public URL
- * 3. Upload to Printful's File Library for reliable access
+ * 2. Upload to Shopify CDN (cdn.shopify.com URL that Printful accepts)
+ * 3. Upload to Printful File Library for reliable access
  * 4. Resolve the correct Printful variant ID
  * 5. Create a draft order in Printful with the custom print file
  */
@@ -338,6 +446,7 @@ export async function processPersonalizedOrder(
     });
 
     console.log(`[printful] Order: ${record.shopifyOrderName}`);
+    console.log(`[printful] Shop: ${record.shop}`);
     console.log(`[printful] Product base: ${record.productBaseSlug || "legacy"}`);
     console.log(`[printful] Technique: ${record.technique || "embroidery"}`);
     console.log(`[printful] Monogram: "${record.monogramText}" (${record.monogramStyle})`);
@@ -352,12 +461,10 @@ export async function processPersonalizedOrder(
     let threadColor: string;
 
     if (isTemplateBased) {
-      // ─── Template-based order ───
       base = getProductBase(record.productBaseSlug!);
       technique = record.technique!;
       placementKey = record.placementKey || "embroidery_front";
 
-      // Parse personalization data
       let persData: { layers?: any[] } = {};
       try {
         persData = JSON.parse(record.personalizationData || "{}");
@@ -365,7 +472,6 @@ export async function processPersonalizedOrder(
         console.error("[printful] Failed to parse personalizationData");
       }
 
-      // Build layer inputs from personalization data
       const layers: LayerInput[] = (persData.layers || []).map((l: any) => ({
         key: l.key || "text",
         type: l.type || "text",
@@ -375,7 +481,6 @@ export async function processPersonalizedOrder(
         position: l.position || { x: 10, y: 10, width: 80, height: 80 },
       }));
 
-      // If no layers from persData, fall back to legacy monogram fields
       if (layers.length === 0 && record.monogramText) {
         layers.push({
           key: "monogram_text",
@@ -387,12 +492,10 @@ export async function processPersonalizedOrder(
         });
       }
 
-      // Get the primary thread color from the first text layer
       threadColor = layers.find((l) => l.type === "text")?.color || "#000000";
 
       console.log(`[printful] Generating print file with ${layers.length} layers`);
 
-      // Generate the print file
       printFilePath = await generatePrintFileAsync({
         productBaseSlug: record.productBaseSlug!,
         technique,
@@ -400,8 +503,7 @@ export async function processPersonalizedOrder(
         layers,
       });
     } else {
-      // ─── Legacy monogram order ───
-      base = getProductBase("yupoong-6245cm"); // Default to dad hat
+      base = getProductBase("yupoong-6245cm");
       technique = "embroidery";
       placementKey = "embroidery_front";
       threadColor = record.threadColor || "#000000";
@@ -417,19 +519,54 @@ export async function processPersonalizedOrder(
 
     console.log(`[printful] Print file generated: ${printFilePath}`);
 
-    // 3. Save print file to database and get public URL
+    // 3. Upload print file to Shopify CDN
     await db.personalizationOrder.update({
       where: { id: recordId },
       data: { status: "uploading" },
     });
 
-    const printFileUrl = await savePrintFileAndGetUrl(printFilePath, recordId);
+    const orderFilename = `monogram-${record.shopifyOrderName.replace("#", "")}-${Date.now()}.png`;
 
-    // 4. Upload to Printful's File Library for reliable access
-    const printfulFileId = await uploadToPrintfulFileLibrary(
-      printFileUrl,
-      `monogram-${record.shopifyOrderName}.png`
-    );
+    let printFileUrl: string;
+    try {
+      printFileUrl = await uploadToShopifyCDN(
+        printFilePath,
+        record.shop,
+        orderFilename
+      );
+      console.log(`[printful] ✓ Uploaded to Shopify CDN: ${printFileUrl}`);
+    } catch (cdnError: any) {
+      console.error(`[printful] Shopify CDN upload failed: ${cdnError.message}`);
+      console.log(`[printful] Falling back to DB storage...`);
+
+      // Fallback: save to DB and use our app URL
+      const APP_URL =
+        process.env.SHOPIFY_APP_URL ||
+        process.env.APP_URL ||
+        "https://printful-custom-production.up.railway.app";
+      const dbFilename = await savePrintFileToDb(printFilePath, recordId);
+      printFileUrl = `${APP_URL}/api/print-files/${dbFilename}`;
+    }
+
+    // Also save to DB as backup
+    await savePrintFileToDb(printFilePath, recordId);
+
+    // 4. Upload to Printful File Library
+    let printfulFileId: number | null = null;
+    try {
+      console.log(`[printful] Uploading to Printful File Library: ${printFileUrl}`);
+      const fileResult = await printfulRequest("/files", "POST", {
+        url: printFileUrl,
+        filename: orderFilename,
+        visible: false,
+      });
+      printfulFileId = fileResult.result?.id || null;
+      if (printfulFileId) {
+        console.log(`[printful] ✓ Printful file ID: ${printfulFileId} (status: ${fileResult.result?.status})`);
+      }
+    } catch (fileErr: any) {
+      console.error(`[printful] Printful file library upload failed: ${fileErr.message}`);
+    }
 
     // 5. Resolve the Printful variant ID
     let printfulVariantId: number;
@@ -441,7 +578,6 @@ export async function processPersonalizedOrder(
         shopifyOrder
       );
     } else {
-      // Fallback: use the Shopify variant ID as external ID
       printfulVariantId = 7853; // Default white Yupoong
     }
 
@@ -471,7 +607,7 @@ export async function processPersonalizedOrder(
       console.log(`[printful] Printful file ID: ${printfulFileId}`);
     }
 
-    // Build the file reference — prefer Printful file ID if available
+    // Build the file reference — prefer Printful file ID if available, else URL
     const fileRef: any = { type: fileType };
     if (printfulFileId) {
       fileRef.id = printfulFileId;
@@ -552,7 +688,7 @@ export async function processPersonalizedOrder(
     );
     console.log(`[printful] ═══════════════════════════════════════════════`);
 
-    // Clean up the original temp file (data is now in DB)
+    // Clean up the original temp file
     try {
       fs.unlinkSync(printFilePath);
     } catch {
