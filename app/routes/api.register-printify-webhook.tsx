@@ -2,7 +2,7 @@ import type { ActionFunctionArgs } from "@remix-run/node";
 
 const PRINTIFY_TOKEN = process.env.PRINTIFY_TOKEN || "";
 const PRINTIFY_SHOP_ID = process.env.PRINTIFY_SHOP_ID || "12491740";
-const PRINTIFY_API = "https://api.printify.me/v1";
+const PRINTIFY_API = "https://api.printify.com/v1";
 
 /**
  * POST /api/register-printify-webhook

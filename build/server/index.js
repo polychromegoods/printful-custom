@@ -206,7 +206,7 @@ const route1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProper
 }, Symbol.toStringTag, { value: "Module" }));
 const PRINTIFY_TOKEN$1 = process.env.PRINTIFY_TOKEN || "";
 const PRINTIFY_SHOP_ID$1 = process.env.PRINTIFY_SHOP_ID || "12491740";
-const PRINTIFY_API$1 = "https://api.printify.me/v1";
+const PRINTIFY_API$1 = "https://api.printify.com/v1";
 const action$7 = async ({ request }) => {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -1398,7 +1398,7 @@ async function processPersonalizedOrder(recordId, shopifyOrder) {
 }
 const PRINTIFY_TOKEN = process.env.PRINTIFY_TOKEN || "";
 const PRINTIFY_SHOP_ID = process.env.PRINTIFY_SHOP_ID || "12491740";
-const PRINTIFY_API = "https://api.printify.me/v1";
+const PRINTIFY_API = "https://api.printify.com/v1";
 async function printifyRequest(endpoint, method = "GET", body) {
   const url = `${PRINTIFY_API}${endpoint}`;
   const options = {
