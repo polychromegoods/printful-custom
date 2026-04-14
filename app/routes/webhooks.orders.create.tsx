@@ -2,6 +2,8 @@ import type { ActionFunctionArgs } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { processPersonalizedOrder } from "../services/printful.server";
+import { processPersonalizedOrderPrintify } from "../services/printify.server";
+import { getProductBase } from "../config/product-bases";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { shop, topic, payload } = await authenticate.webhook(request);
@@ -48,6 +50,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       console.log(`  Monogram: "${monogramText}" (${monogramStyle}, ${threadColor})`);
     }
 
+    // Determine fulfillment provider based on product base
+    let fulfillmentProvider = "printful"; // default
+    if (productBaseSlug) {
+      const base = getProductBase(productBaseSlug);
+      if (base) {
+        fulfillmentProvider = base.fulfillmentProvider;
+        console.log(`[webhook] Product base "${productBaseSlug}" → provider: ${fulfillmentProvider}`);
+      }
+    }
+
     // Check for duplicate (idempotency)
     const existing = await db.personalizationOrder.findFirst({
       where: {
@@ -75,6 +87,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           ? `${order.shipping_address.first_name || ""} ${order.shipping_address.last_name || ""}`.trim()
           : null,
 
+        // Fulfillment provider
+        fulfillmentProvider,
+
         // New template fields
         templateId: templateId || null,
         productBaseSlug: productBaseSlug || null,
@@ -91,12 +106,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       },
     });
 
-    console.log(`[webhook] Created PersonalizationOrder ${record.id} for order ${orderName}`);
+    console.log(`[webhook] Created PersonalizationOrder ${record.id} for order ${orderName} (provider: ${fulfillmentProvider})`);
 
-    // Process asynchronously (fire-and-forget so webhook returns quickly)
-    processPersonalizedOrder(record.id, order).catch((err) => {
-      console.error(`[webhook] Error processing order ${record.id}:`, err);
-    });
+    // Route to the correct fulfillment provider
+    if (fulfillmentProvider === "printify") {
+      processPersonalizedOrderPrintify(record.id, order).catch((err) => {
+        console.error(`[webhook] Error processing Printify order ${record.id}:`, err);
+      });
+    } else {
+      processPersonalizedOrder(record.id, order).catch((err) => {
+        console.error(`[webhook] Error processing Printful order ${record.id}:`, err);
+      });
+    }
   }
 
   return new Response();

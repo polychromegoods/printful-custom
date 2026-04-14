@@ -74,6 +74,8 @@ export interface PrintAreaSpec {
 export interface ProductVariant {
   /** Printful variant ID */
   printfulVariantId: number;
+  /** Printify variant ID (if using Printify) */
+  printifyVariantId?: number;
   /** Color name */
   color: string;
   /** Color hex code */
@@ -129,11 +131,19 @@ export interface FontDef {
 
 // ─── Product Base Definition ─────────────────────────────────────────────────
 
+export type FulfillmentProvider = "printful" | "printify";
+
 export interface ProductBase {
   /** Unique slug for this product base */
   slug: string;
-  /** Printful catalog product ID */
+  /** Fulfillment provider for this product */
+  fulfillmentProvider: FulfillmentProvider;
+  /** Printful catalog product ID (if using Printful) */
   printfulProductId: number;
+  /** Printify blueprint ID (if using Printify) */
+  printifyBlueprintId?: number;
+  /** Printify print provider ID (if using Printify) */
+  printifyProviderId?: number;
   /** Human-readable name */
   name: string;
   /** Brand */
@@ -199,6 +209,7 @@ export const PRODUCT_BASES: ProductBase[] = [
   // ═══════════════════════════════════════════════════════════════════════════
   {
     slug: "yupoong-6245cm",
+    fulfillmentProvider: "printful",
     printfulProductId: 206,
     name: "Classic Dad Hat",
     brand: "Yupoong",
@@ -275,7 +286,8 @@ export const PRODUCT_BASES: ProductBase[] = [
   // ═══════════════════════════════════════════════════════════════════════════
   {
     slug: "comfort-colors-1717",
-    printfulProductId: 586,
+    fulfillmentProvider: "printful",
+    printfulProductId: 380,
     name: "Unisex Garment-Dyed Heavyweight T-Shirt",
     brand: "Comfort Colors",
     model: "1717",
@@ -403,6 +415,56 @@ export const PRODUCT_BASES: ProductBase[] = [
       },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Liberty Bags OAD113 Cotton Canvas Tote Bag (Printify)
+  // ═══════════════════════════════════════════════════════════════════════════
+  {
+    slug: "liberty-bags-oad113",
+    fulfillmentProvider: "printify",
+    printfulProductId: 0, // Not on Printful
+    printifyBlueprintId: 1313,
+    printifyProviderId: 29, // Monster Digital
+    name: "Cotton Canvas Tote Bag",
+    brand: "Liberty Bags",
+    model: "OAD113",
+    category: "bag",
+    techniques: [
+      { key: "dtg", displayName: "DTG Print", isDefault: true },
+    ],
+    placements: [
+      {
+        placementKey: "front",
+        displayName: "Front",
+        technique: "dtg",
+        maxAreaInches: { width: 10, height: 12 },
+        fileSizePx: { width: 3000, height: 3600 },
+        dpi: 300,
+        mockupPosition: {
+          x: 15,
+          y: 20,
+          width: 70,
+          height: 65,
+        },
+      },
+    ],
+    variants: [
+      { printfulVariantId: 0, printifyVariantId: 101409, color: "Natural", colorHex: "#f5f0e1" },
+      { printfulVariantId: 0, printifyVariantId: 103598, color: "Black", colorHex: "#222222" },
+    ],
+    defaultLayers: [
+      {
+        key: "main_text",
+        type: "text",
+        label: "Custom Text",
+        customerEditable: true,
+        maxChars: 20,
+        fonts: AVAILABLE_FONTS,
+        colorSource: "thread_colors",
+        position: { x: 10, y: 20, width: 80, height: 60 },
+      },
+    ],
+  },
 ];
 
 // ─── Helper Functions ────────────────────────────────────────────────────────
@@ -413,6 +475,10 @@ export function getProductBase(slug: string): ProductBase | undefined {
 
 export function getProductBaseByPrintfulId(printfulProductId: number): ProductBase | undefined {
   return PRODUCT_BASES.find((pb) => pb.printfulProductId === printfulProductId);
+}
+
+export function getProductBaseByPrintifyBlueprintId(blueprintId: number): ProductBase | undefined {
+  return PRODUCT_BASES.find((pb) => pb.printifyBlueprintId === blueprintId);
 }
 
 export function getPlacementsForTechnique(

@@ -191,18 +191,27 @@ model PersonalizationOrder {
   monogramStyle     String?  @default("script")
   threadColor       String?  @default("#000000")
 
+  // Fulfillment provider: "printful" | "printify"
+  fulfillmentProvider String @default("printful")
+
   // Processing status: pending | generating | uploading | submitting | completed | failed
   status            String   @default("pending")
   errorMessage      String?
 
-  // Printful integration
+  // Print file (shared)
   printFileUrl      String?
+
+  // Printful integration
   printfulFileId    String?
   printfulOrderId   String?
   printfulStatus    String?
-
-  // Printful variant ID used for the order
   printfulVariantId Int?
+
+  // Printify integration
+  printifyImageId   String?
+  printifyOrderId   String?
+  printifyStatus    String?
+  printifyVariantId Int?
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
