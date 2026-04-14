@@ -206,9 +206,14 @@
   var productHandle = '{{ product.handle }}';
   var currentVariantId = '{{ product.selected_or_first_available_variant.id }}';
 
+  // ─── App base URL (direct to Railway, bypasses Shopify app proxy) ───
+  var appBaseUrl = '{{ block.settings.app_url | default: "https://printful-custom-production.up.railway.app" }}';
+  // Strip trailing slash if present
+  if (appBaseUrl.endsWith('/')) appBaseUrl = appBaseUrl.slice(0, -1);
+
   // ─── Fetch template config ───
   function fetchTemplateConfig(variantId) {
-    var apiUrl = '/apps/proxy/product-base?product_id=' + productId;
+    var apiUrl = appBaseUrl + '/api/product-base?product_id=' + productId;
     if (variantId) apiUrl += '&variant_id=' + variantId;
     if (productHandle) apiUrl += '&handle=' + encodeURIComponent(productHandle);
 
@@ -492,7 +497,7 @@
     if (selectedColor) params.set('color_name', selectedColor);
     params.set('format', 'image');
 
-    return '/apps/proxy/preview?' + params.toString();
+    return appBaseUrl + '/api/preview?' + params.toString();
   }
 
   // ─── Cart drawer thumbnail swap ───
@@ -1063,6 +1068,13 @@
       "id": "title",
       "label": "Section Title",
       "default": "Personalize Your Product"
+    },
+    {
+      "type": "text",
+      "id": "app_url",
+      "label": "App Server URL",
+      "default": "https://printful-custom-production.up.railway.app",
+      "info": "The Railway app URL. Only change if you redeploy to a different domain."
     }
   ]
 }
