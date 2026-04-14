@@ -299,7 +299,7 @@ export const PRODUCT_BASES: ProductBase[] = [
         fileSizePx: { width: 1200, height: 1200 },
         dpi: 300,
         supports3dPuff: false,
-        mockupPosition: { x: 52, y: 28, width: 18, height: 18 },
+        mockupPosition: { x: 56, y: 34, width: 24, height: 24 },
       },
       {
         placementKey: "embroidery_chest_center",
@@ -329,7 +329,7 @@ export const PRODUCT_BASES: ProductBase[] = [
         maxAreaInches: { width: 12, height: 16 },
         fileSizePx: { width: 3600, height: 4800 },
         dpi: 300,
-        mockupPosition: { x: 18, y: 18, width: 64, height: 55 },
+        mockupPosition: { x: 22, y: 24, width: 54, height: 52 },
       },
       // ── DTF placements ──
       {
@@ -339,7 +339,7 @@ export const PRODUCT_BASES: ProductBase[] = [
         maxAreaInches: { width: 12, height: 16 },
         fileSizePx: { width: 3600, height: 4800 },
         dpi: 300,
-        mockupPosition: { x: 18, y: 18, width: 64, height: 55 },
+        mockupPosition: { x: 22, y: 24, width: 54, height: 52 },
       },
     ],
     variants: [
