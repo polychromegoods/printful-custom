@@ -28,7 +28,7 @@ api_version = "2026-04"
 
 [app_proxy]
 url = "https://printful-custom-production.up.railway.app/api"
-subpath = "api"
+subpath = "proxy"
 prefix = "apps"
 
 [build]

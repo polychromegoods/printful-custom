@@ -208,7 +208,7 @@
 
   // ─── Fetch template config ───
   function fetchTemplateConfig(variantId) {
-    var apiUrl = '/apps/api/product-base?product_id=' + productId;
+    var apiUrl = '/apps/proxy/product-base?product_id=' + productId;
     if (variantId) apiUrl += '&variant_id=' + variantId;
     if (productHandle) apiUrl += '&handle=' + encodeURIComponent(productHandle);
 
@@ -463,7 +463,7 @@
   }
 
   // ─── Build server-side preview image URL ───
-  // Generates a URL pointing to /apps/api/preview which composites
+  // Generates a URL pointing to /apps/proxy/preview which composites
   // the monogram text onto the real product mockup using sharp (server-side).
   // This avoids CORS tainted-canvas issues that break client-side snapshots.
 
@@ -492,7 +492,7 @@
     if (selectedColor) params.set('color_name', selectedColor);
     params.set('format', 'image');
 
-    return '/apps/api/preview?' + params.toString();
+    return '/apps/proxy/preview?' + params.toString();
   }
 
   // ─── Cart drawer thumbnail swap ───
