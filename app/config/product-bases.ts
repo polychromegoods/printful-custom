@@ -280,6 +280,10 @@ export const PRODUCT_BASES: ProductBase[] = [
     brand: "Comfort Colors",
     model: "1717",
     category: "shirt",
+    defaultMockupUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/iOIngYGFxbAltuqj.webp",
+    variantMockups: {
+      "Ivory": "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/iOIngYGFxbAltuqj.webp",
+    },
     techniques: [
       { key: "dtg", displayName: "DTG Printing", isDefault: true },
       { key: "embroidery", displayName: "Embroidery", isDefault: false },
