@@ -1,18 +1,20 @@
-FROM node:20-alpine
+FROM node:20-slim
 
-# System deps for sharp (libvips), canvas (cairo/pango), and fontconfig
-RUN apk add --no-cache \
+# System deps for sharp (libvips), canvas (cairo/pango), fontconfig, and openssl
+RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl \
     fontconfig \
-    vips-dev \
-    build-base \
+    libvips-dev \
+    build-essential \
     g++ \
-    cairo-dev \
-    pango-dev \
-    jpeg-dev \
-    giflib-dev \
-    librsvg-dev \
-    python3
+    libcairo2-dev \
+    libpango1.0-dev \
+    libjpeg-dev \
+    libgif-dev \
+    librsvg2-dev \
+    python3 \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
