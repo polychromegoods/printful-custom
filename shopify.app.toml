@@ -1,12 +1,12 @@
 # This file stores configurations for your Shopify app.
 
 name = "Printful Custom"
-client_id = "703595d48ab90f2160930b04ab7a2a35"
-application_url = "https://localhost"
+client_id = "f73fd9d2dc065bf8e5392c093bb610e9"
+application_url = "https://printful-custom-production.up.railway.app"
 embedded = true
 
 [auth]
-redirect_urls = [ "https://localhost/auth/callback" ]
+redirect_urls = [ "https://printful-custom-production.up.railway.app/auth/callback" ]
 
 [access_scopes]
 scopes = "write_orders,read_orders,read_products,write_files,read_files"
@@ -27,7 +27,7 @@ api_version = "2026-04"
   uri = "/webhooks/orders/create"
 
 [app_proxy]
-url = "https://localhost/api"
+url = "https://printful-custom-production.up.railway.app/api"
 subpath = "api"
 prefix = "apps"
 
