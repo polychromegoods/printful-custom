@@ -3,3 +3,4 @@ node_modules/
 prisma/dev.sqlite
 prisma/dev.sqlite-journal
 *.log
+.uuid

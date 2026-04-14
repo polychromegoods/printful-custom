@@ -1,21 +1,44 @@
-FROM node:18-alpine
-RUN apk add --no-cache openssl
+FROM node:20-alpine
+
+# System deps for sharp (libvips), canvas (cairo/pango), and fontconfig
+RUN apk add --no-cache \
+    openssl \
+    fontconfig \
+    vips-dev \
+    build-base \
+    g++ \
+    cairo-dev \
+    pango-dev \
+    jpeg-dev \
+    giflib-dev \
+    librsvg-dev \
+    python3
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 EXPOSE 3000
 
 WORKDIR /app
 
 ENV NODE_ENV=production
+# Tell fontconfig where our bundled fonts live
+ENV FONTCONFIG_PATH=/app/app/fonts
 
-COPY package.json package-lock.json* ./
+# Copy package files
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-RUN npm ci --omit=dev && npm cache clean --force
-# Remove CLI packages since we don't need them in production by default.
-# Remove this line if you want to run CLI commands in your container.
-RUN npm remove @shopify/cli
+# Install all deps (including devDependencies for build step)
+RUN pnpm install --frozen-lockfile
 
+# Copy source
 COPY . .
 
-RUN npm run build
+# Generate Prisma client and build
+RUN npx prisma generate
+RUN pnpm run build
 
-CMD ["npm", "run", "docker-start"]
+# Remove devDependencies after build
+RUN pnpm prune --prod
+
+CMD ["pnpm", "run", "docker-start"]
