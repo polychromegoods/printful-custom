@@ -43,4 +43,7 @@ RUN pnpm run build
 # Remove devDependencies after build
 RUN pnpm prune --prod
 
+# Create directory for generated print files
+RUN mkdir -p /app/generated-print-files
+
 CMD ["pnpm", "run", "docker-start"]

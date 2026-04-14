@@ -4,3 +4,6 @@ prisma/dev.sqlite
 prisma/dev.sqlite-journal
 *.log
 .uuid
+generated-print-files/*.png
+generated-print-files/*.jpg
+generated-print-files/*.pdf
