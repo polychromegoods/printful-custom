@@ -103,11 +103,27 @@ function buildTextSvg(
     textElements += `<text x="${centerX - spacing}" y="${centerY + bigSize * 0.03}" font-family="${fontFamily}" font-size="${Math.round(smallSize)}"${weight} ${fill} ${anchor} ${baseline}>${first}</text>`;
     textElements += `<text x="${centerX + spacing}" y="${centerY + bigSize * 0.03}" font-family="${fontFamily}" font-size="${Math.round(smallSize)}"${weight} ${fill} ${anchor} ${baseline}>${middle}</text>`;
   } else {
-    const fontSize = isScript
+    const lines = text.split("\n");
+    let fontSize = isScript
       ? Math.min(paW * 0.5, paH * 0.7)
       : Math.min(paW * 0.4, paH * 0.6);
-    const escaped = svgEscape(text);
-    textElements = `<text x="${centerX}" y="${centerY}" font-family="${fontFamily}" font-size="${Math.round(fontSize)}"${weight} ${fill} ${anchor} ${baseline}>${escaped}</text>`;
+    
+    // Scale down for multi-line
+    if (lines.length > 3) fontSize = fontSize * (3 / lines.length);
+
+    if (lines.length === 1) {
+      const escaped = svgEscape(text);
+      textElements = `<text x="${centerX}" y="${centerY}" font-family="${fontFamily}" font-size="${Math.round(fontSize)}"${weight} ${fill} ${anchor} ${baseline}>${escaped}</text>`;
+    } else {
+      const lineHeight = fontSize * 1.2;
+      const totalHeight = lines.length * lineHeight;
+      const startY = centerY - totalHeight / 2 + lineHeight / 2;
+      
+      textElements = lines.map((line, i) => {
+        const escaped = svgEscape(line);
+        return `<text x="${centerX}" y="${startY + i * lineHeight}" font-family="${fontFamily}" font-size="${Math.round(fontSize)}"${weight} ${fill} ${anchor} ${baseline}>${escaped}</text>`;
+      }).join("");
+    }
   }
 
   return `<svg width="${previewSize}" height="${previewSize}" xmlns="http://www.w3.org/2000/svg">
@@ -192,9 +208,7 @@ async function getCachedMockup(
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const text = (url.searchParams.get("text") || "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9 ]/g, "")
-    .slice(0, 10);
+    .slice(0, 1000);
   const style = url.searchParams.get("style") || "block";
   const color = url.searchParams.get("color") || "#000000";
   const format = url.searchParams.get("format") || "image";

@@ -295,7 +295,7 @@ export async function processPersonalizedOrderPrintify(
       const layers: LayerInput[] = (persData.layers || []).map((l: any) => ({
         key: l.key || "text",
         type: l.type || "text",
-        value: (l.text || l.value || "").toUpperCase().replace(/[^A-Z0-9 ]/g, ""),
+        value: l.text || l.value || "",
         font: l.font || "block",
         color: l.color || "#000000",
         position: l.position || { x: 10, y: 10, width: 80, height: 80 },

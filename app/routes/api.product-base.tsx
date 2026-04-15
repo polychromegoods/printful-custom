@@ -350,6 +350,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         maxFileSizeMb: layer.maxFileSizeMb,
         // Fixed image layer options
         fixedImageUrl: layer.fixedImageUrl,
+        // Mad Lib options
+        madLibTemplate: layer.madLibTemplate,
+        madLibPrompts: layer.madLibPrompts,
       };
     });
 

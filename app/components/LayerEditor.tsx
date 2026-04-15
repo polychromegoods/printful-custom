@@ -40,6 +40,8 @@ export interface LayerData {
   defaultFont?: string;
   defaultColor?: string;
   fixedImageUrl?: string;
+  madLibTemplate?: string;
+  madLibPrompts?: string;
 }
 
 export interface PrintArea {
@@ -934,6 +936,27 @@ export function LayerEditor({
                         </span>
                       </div>
                     </div>
+
+                    <Divider />
+                    <Text as="p" variant="bodySm" fontWeight="semibold">
+                      Mad Lib Configuration
+                    </Text>
+                    <TextField
+                      label="Mad Lib Template"
+                      value={selectedLayer.madLibTemplate || ""}
+                      onChange={(val) => updateLayer(selectedLayerIndex, { madLibTemplate: val })}
+                      autoComplete="off"
+                      multiline={3}
+                      helpText="Use [1], [2], etc. for placeholders. e.g. 'Dear [1], you are [2]!'"
+                    />
+                    <TextField
+                      label="Mad Lib Prompts (JSON array)"
+                      value={selectedLayer.madLibPrompts || ""}
+                      onChange={(val) => updateLayer(selectedLayerIndex, { madLibPrompts: val })}
+                      autoComplete="off"
+                      placeholder='["Nickname", "Adjective"]'
+                      helpText='Enter as a JSON array of strings: ["Prompt 1", "Prompt 2"]'
+                    />
                   </>
                 )}
 

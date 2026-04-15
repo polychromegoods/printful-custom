@@ -230,12 +230,27 @@ function drawTextLayer(
     );
   } else {
     // Script or non-3-letter: just center the text
-    const fontSize = isScript
+    const lines = value.split("\n");
+    let fontSize = isScript
       ? Math.min(w * 0.5, h * 0.7)
       : Math.min(w * 0.4, h * 0.6);
+
+    // If many lines, scale down font
+    if (lines.length > 3) fontSize = fontSize * (3 / lines.length);
+
     const weight = isScript ? "" : "bold ";
     ctx.font = `${weight}${Math.round(fontSize)}px ${fontFamily}`;
-    ctx.fillText(value, centerX, centerY);
+
+    if (lines.length === 1) {
+      ctx.fillText(value, centerX, centerY);
+    } else {
+      const lineHeight = fontSize * 1.2;
+      const totalHeight = lines.length * lineHeight;
+      const startY = centerY - totalHeight / 2 + lineHeight / 2;
+      lines.forEach((line: string, i: number) => {
+        ctx.fillText(line, centerX, startY + i * lineHeight);
+      });
+    }
   }
 }
 

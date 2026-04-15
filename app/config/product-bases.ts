@@ -465,6 +465,50 @@ export const PRODUCT_BASES: ProductBase[] = [
       },
     ],
   },
+  {
+    slug: "11oz-mug",
+    fulfillmentProvider: "printify",
+    printfulProductId: 0,
+    printifyBlueprintId: 68,
+    printifyProviderId: 45,
+    name: "11oz White Ceramic Mug",
+    brand: "Generic",
+    model: "11oz Mug",
+    category: "accessory",
+    defaultMockupUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/HOQjPHCMIuLCChxT.webp",
+    variantMockups: {
+      White: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/HOQjPHCMIuLCChxT.webp",
+    },
+    techniques: [
+      { key: "dtg", displayName: "Sublimation", isDefault: true },
+    ],
+    placements: [
+      {
+        placementKey: "front",
+        displayName: "Front",
+        technique: "dtg",
+        maxAreaInches: { width: 3.5, height: 3.5 },
+        fileSizePx: { width: 1050, height: 1050 },
+        dpi: 300,
+        mockupPosition: { x: 38, y: 28, width: 38, height: 45 },
+      },
+    ],
+    variants: [
+      { printfulVariantId: 0, printifyVariantId: 43071, color: "White", colorHex: "#ffffff" },
+    ],
+    defaultLayers: [
+      {
+        key: "mad_lib_text",
+        type: "text",
+        label: "Mad Lib Message",
+        customerEditable: true,
+        maxChars: 500,
+        fonts: AVAILABLE_FONTS,
+        colorSource: "custom",
+        position: { x: 5, y: 5, width: 90, height: 90 },
+      },
+    ],
+  },
 ];
 
 // ─── Helper Functions ────────────────────────────────────────────────────────

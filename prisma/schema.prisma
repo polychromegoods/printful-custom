@@ -118,6 +118,10 @@ model TemplateLayer {
   // Default text color hex
   defaultColor        String?  @default("#000000")
 
+  // ── Mad Lib options ──
+  madLibTemplate     String?  // e.g. "Dear [name], you are [adj]"
+  madLibPrompts      String?  // JSON array of prompts: ["Nickname", "Adjective"]
+
   // ── Image layer options ──
   acceptedFileTypes   String?  @default("[\"image/png\",\"image/jpeg\"]")
   maxFileSizeMb       Float?   @default(10)

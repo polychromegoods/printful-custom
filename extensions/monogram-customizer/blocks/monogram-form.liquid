@@ -188,6 +188,75 @@
     pointer-events: none;
     z-index: 10;
   }
+  
+  /* Mad Lib UI Styles */
+  .pc-mad-lib {
+    padding: 15px;
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 8px;
+  }
+  .pc-mad-lib__step-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: #333;
+  }
+  .pc-mad-lib__prompt {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 8px;
+  }
+  .pc-mad-lib__input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #eee;
+    border-radius: 6px;
+    font-size: 16px;
+    margin-bottom: 15px;
+    transition: border-color 0.2s;
+  }
+  .pc-mad-lib__input:focus {
+    border-color: #333;
+    outline: none;
+  }
+  .pc-mad-lib__nav {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .pc-mad-lib__btn {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .pc-mad-lib__btn--primary {
+    background: #333;
+    color: #fff;
+  }
+  .pc-mad-lib__btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .pc-mad-lib__summary {
+    font-size: 14px;
+    line-height: 1.6;
+    color: #333;
+    margin-bottom: 15px;
+    padding: 10px;
+    background: #f9f9f9;
+    border-radius: 6px;
+    white-space: pre-wrap;
+  }
+  .pc-mad-lib__summary b {
+    color: #007ace;
+    text-decoration: underline;
+  }
 </style>
 
 <div class="pc-customizer" id="pc-customizer">
@@ -291,14 +360,115 @@
         label: layer.label,
         position: layer.position,
         maxChars: layer.maxChars,
+        madLibTemplate: layer.madLibTemplate,
+        madLibPrompts: layer.madLibPrompts ? JSON.parse(layer.madLibPrompts) : null,
+        madLibAnswers: []
       };
 
       if (layer.type === 'text') {
-        buildTextLayer(container, layer);
+        if (layerStates[layer.id].madLibTemplate && layerStates[layer.id].madLibPrompts) {
+          buildMadLibUI(container, layer);
+        } else {
+          buildTextLayer(container, layer);
+        }
       } else if (layer.type === 'image') {
         buildImageLayer(container, layer);
       }
     });
+  }
+
+  // ─── Build Mad Lib UI ───
+  function buildMadLibUI(container, layer) {
+    var state = layerStates[layer.id];
+    var prompts = state.madLibPrompts;
+    var currentStep = 0;
+
+    function renderStep() {
+      var isLastStep = currentStep === prompts.length;
+      var html = '<div class="pc-customizer__field pc-mad-lib" id="mad-lib-' + layer.id + '">';
+      
+      if (!isLastStep) {
+        html += '<div class="pc-mad-lib__step-title">Step ' + (currentStep + 1) + ' of ' + prompts.length + '</div>';
+        html += '<div class="pc-mad-lib__prompt">' + escapeHtml(prompts[currentStep]) + '</div>';
+        html += '<input type="text" class="pc-mad-lib__input" id="mad-lib-input-' + layer.id + '" value="' + escapeHtml(state.madLibAnswers[currentStep] || '') + '" placeholder="Type here...">';
+        html += '<div class="pc-mad-lib__nav">';
+        html += '<button type="button" class="pc-mad-lib__btn" id="mad-lib-prev-' + layer.id + '" ' + (currentStep === 0 ? 'disabled' : '') + '>Back</button>';
+        html += '<button type="button" class="pc-mad-lib__btn pc-mad-lib__btn--primary" id="mad-lib-next-' + layer.id + '">Next</button>';
+        html += '</div>';
+      } else {
+        html += '<div class="pc-mad-lib__step-title">Review your Mad Lib</div>';
+        html += '<div class="pc-mad-lib__summary">' + renderMadLibSummary(state) + '</div>';
+        html += '<div class="pc-mad-lib__nav">';
+        html += '<button type="button" class="pc-mad-lib__btn" id="mad-lib-prev-' + layer.id + '">Edit Words</button>';
+        html += '<button type="button" class="pc-mad-lib__btn pc-mad-lib__btn--primary" id="mad-lib-restart-' + layer.id + '">Start Over</button>';
+        html += '</div>';
+      }
+      
+      html += '</div>';
+      
+      var existing = document.getElementById('mad-lib-' + layer.id);
+      if (existing) {
+        existing.outerHTML = html;
+      } else {
+        container.insertAdjacentHTML('beforeend', html);
+      }
+
+      // Bind events
+      var input = document.getElementById('mad-lib-input-' + layer.id);
+      if (input) {
+        input.focus();
+        input.addEventListener('keypress', function(e) {
+          if (e.key === 'Enter') document.getElementById('mad-lib-next-' + layer.id).click();
+        });
+      }
+
+      document.getElementById('mad-lib-next-' + layer.id)?.addEventListener('click', function() {
+        if (!isLastStep) {
+          state.madLibAnswers[currentStep] = input.value || '___';
+          currentStep++;
+          updateMadLibText(layer.id);
+          renderStep();
+        }
+      });
+
+      document.getElementById('mad-lib-prev-' + layer.id)?.addEventListener('click', function() {
+        currentStep--;
+        renderStep();
+      });
+
+      document.getElementById('mad-lib-restart-' + layer.id)?.addEventListener('click', function() {
+        currentStep = 0;
+        state.madLibAnswers = [];
+        updateMadLibText(layer.id);
+        renderStep();
+      });
+    }
+
+    function renderMadLibSummary(state) {
+      var text = state.madLibTemplate;
+      state.madLibAnswers.forEach(function(ans, i) {
+        text = text.replace('[' + (i + 1) + ']', '<b>' + escapeHtml(ans) + '</b>');
+      });
+      return text;
+    }
+
+    renderStep();
+  }
+
+  function updateMadLibText(layerId) {
+    var state = layerStates[layerId];
+    var text = state.madLibTemplate;
+    state.madLibAnswers.forEach(function(ans, i) {
+      text = text.replace('[' + (i + 1) + ']', ans);
+    });
+    // If not all answers are in, keep placeholders for preview
+    state.madLibPrompts.forEach(function(p, i) {
+      if (!state.madLibAnswers[i]) {
+        text = text.replace('[' + (i + 1) + ']', '___');
+      }
+    });
+    state.text = text;
+    renderPreview();
   }
 
   // ─── Build text layer UI ───
@@ -966,12 +1136,28 @@
       overlayCtx.fillText(middle, startX + sideWidth + w * 0.06 + centerWidth + sideWidth / 2, centerY + bigSize * 0.05);
     } else {
       // Script or non-3-letter: center the text (same as server)
+      // Check for multi-line text (Mad Libs)
+      var lines = ls.text.split('\n');
       var fontSize = isScript
         ? Math.min(w * 0.5, h * 0.7)
         : Math.min(w * 0.4, h * 0.6);
+      
+      // If many lines, scale down font
+      if (lines.length > 3) fontSize = fontSize * (3 / lines.length);
+      
       var weight = isScript ? '' : 'bold ';
       overlayCtx.font = weight + Math.round(fontSize) + 'px ' + fontFamily;
-      overlayCtx.fillText(ls.text, centerX, centerY);
+      
+      if (lines.length === 1) {
+        overlayCtx.fillText(ls.text, centerX, centerY);
+      } else {
+        var lineHeight = fontSize * 1.2;
+        var totalHeight = lines.length * lineHeight;
+        var startY = centerY - (totalHeight / 2) + (lineHeight / 2);
+        lines.forEach(function(line, i) {
+          overlayCtx.fillText(line, centerX, startY + (i * lineHeight));
+        });
+      }
     }
 
     // Reset shadow

@@ -147,6 +147,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
               defaultFont: layer.defaultFont ?? "script",
               defaultColor: layer.defaultColor ?? "#000000",
               fixedImageUrl: layer.fixedImageUrl ?? null,
+              madLibTemplate: layer.madLibTemplate ?? null,
+              madLibPrompts: layer.madLibPrompts ?? null,
             })),
           },
         },
