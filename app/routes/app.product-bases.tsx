@@ -64,39 +64,64 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     include: { variants: { where: { isEnabled: true }, orderBy: { sortOrder: "asc" } } },
   });
 
-  return json({
-    templates,
-    shop: session.shop,
-    productBases: PRODUCT_BASES.map((pb) => ({
+  // Merge DB-imported product bases into a unified list with the same shape as static registry
+  // DB products appear first (they're the user's imported products), static ones as fallback
+  const dbProductBasesForList = dbProductBases.map((dbPb) => {
+    let techniques: Array<{ key: string; displayName: string; isDefault: boolean }> = [];
+    let placements: Array<any> = [];
+    try { techniques = JSON.parse(dbPb.techniques); } catch {}
+    try { placements = JSON.parse(dbPb.placements); } catch {}
+    return {
+      slug: dbPb.slug,
+      name: dbPb.name,
+      brand: dbPb.brand,
+      model: dbPb.model,
+      category: dbPb.category,
+      techniques,
+      placements,
+      variants: dbPb.variants.map((v) => ({ color: v.color, colorHex: v.colorHex, mockupImageUrl: v.mockupImageUrl })),
+      source: "db" as const,
+      defaultMockupUrl: dbPb.defaultMockupUrl,
+      defaultPrintAreaX: dbPb.defaultPrintAreaX,
+      defaultPrintAreaY: dbPb.defaultPrintAreaY,
+      defaultPrintAreaWidth: dbPb.defaultPrintAreaWidth,
+      defaultPrintAreaHeight: dbPb.defaultPrintAreaHeight,
+      printFileWidth: dbPb.printFileWidth,
+      printFileHeight: dbPb.printFileHeight,
+      printFileDpi: dbPb.printFileDpi,
+      fulfillmentProvider: dbPb.fulfillmentProvider,
+    };
+  });
+
+  const staticProductBasesForList = PRODUCT_BASES
+    .filter((pb) => !dbProductBases.some((dbPb) => dbPb.slug === pb.slug)) // avoid duplicates
+    .map((pb) => ({
       slug: pb.slug,
       name: pb.name,
       brand: pb.brand,
       model: pb.model,
       category: pb.category,
-      techniques: pb.techniques,
-      variants: pb.variants.map((v) => ({ color: v.color, colorHex: v.colorHex })),
-    })),
-    dbProductBases: dbProductBases.map((db) => ({
-      slug: db.slug,
-      name: db.name,
-      brand: db.brand,
-      model: db.model,
-      category: db.category,
-      defaultMockupUrl: db.defaultMockupUrl,
-      defaultPrintAreaX: db.defaultPrintAreaX,
-      defaultPrintAreaY: db.defaultPrintAreaY,
-      defaultPrintAreaWidth: db.defaultPrintAreaWidth,
-      defaultPrintAreaHeight: db.defaultPrintAreaHeight,
-      printFileWidth: db.printFileWidth,
-      printFileHeight: db.printFileHeight,
-      printFileDpi: db.printFileDpi,
-      fulfillmentProvider: db.fulfillmentProvider,
-      variants: db.variants.map((v) => ({
-        color: v.color,
-        colorHex: v.colorHex,
-        mockupImageUrl: v.mockupImageUrl,
-      })),
-    })),
+      techniques: pb.techniques as Array<{ key: string; displayName: string; isDefault: boolean }>,
+      placements: pb.placements as Array<any>,
+      variants: pb.variants.map((v) => ({ color: v.color, colorHex: v.colorHex, mockupImageUrl: undefined as string | undefined | null })),
+      source: "static" as const,
+      defaultMockupUrl: pb.defaultMockupUrl || null,
+      defaultPrintAreaX: null as number | null,
+      defaultPrintAreaY: null as number | null,
+      defaultPrintAreaWidth: null as number | null,
+      defaultPrintAreaHeight: null as number | null,
+      printFileWidth: null as number | null,
+      printFileHeight: null as number | null,
+      printFileDpi: null as number | null,
+      fulfillmentProvider: pb.fulfillmentProvider,
+    }));
+
+  const allProductBases = [...dbProductBasesForList, ...staticProductBasesForList];
+
+  return json({
+    templates,
+    shop: session.shop,
+    productBases: allProductBases,
     threadColors: EMBROIDERY_THREAD_COLORS,
     fonts: AVAILABLE_FONTS,
   });
@@ -513,7 +538,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function ProductBasesPage() {
-  const { templates, productBases, dbProductBases, threadColors, fonts } = useLoaderData<typeof loader>();
+  const { templates, productBases, threadColors, fonts } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -571,14 +596,19 @@ export default function ProductBasesPage() {
   const [editProductTitle, setEditProductTitle] = useState("");
   const [editProductHandle, setEditProductHandle] = useState("");
 
-  // Derived state
+  // Derived state — unified: productBases now contains both DB and static products
   const selectedBase = productBases.find((pb) => pb.slug === selectedBaseSlug);
-  const selectedDbBase = dbProductBases.find((db) => db.slug === selectedBaseSlug);
-  const availableTechniques = selectedBase?.techniques || [];
+  const isDbBase = selectedBase?.source === "db";
   const selectedBaseFromRegistry = PRODUCT_BASES.find((pb) => pb.slug === selectedBaseSlug);
-  const availablePlacements = selectedBaseFromRegistry && selectedTechnique
-    ? getPlacementsForTechnique(selectedBaseFromRegistry, selectedTechnique as TechniqueKey)
-    : [];
+  const availableTechniques = selectedBase?.techniques || [];
+  // For DB bases, use placements from the merged data; for static, use the registry helper
+  const availablePlacements = selectedBase?.placements
+    ? (selectedBase.placements as Array<any>).filter((p: any) =>
+      !selectedTechnique || p.technique === selectedTechnique
+    )
+    : selectedBaseFromRegistry && selectedTechnique
+      ? getPlacementsForTechnique(selectedBaseFromRegistry, selectedTechnique as TechniqueKey)
+      : [];
   const selectedPlacementSpec = availablePlacements.find((p) => p.placementKey === selectedPlacement);
 
   // Reset wizard
@@ -633,17 +663,17 @@ export default function ProductBasesPage() {
       const vc = JSON.parse(template.enabledVariantColors);
       setEnabledVariantColors(vc);
     } catch { setEnabledVariantColors([]); }
-    // Use DB product base print area (Mockup Manager) as authoritative source
-    const editDbBase = dbProductBases.find((db) => db.slug === template.productBaseSlug);
-    if (editDbBase) {
-      setPrintAreaX(editDbBase.defaultPrintAreaX);
-      setPrintAreaY(editDbBase.defaultPrintAreaY);
-      setPrintAreaWidth(editDbBase.defaultPrintAreaWidth);
-      setPrintAreaHeight(editDbBase.defaultPrintAreaHeight);
+    // Use unified product base list — DB bases have print area from Mockup Manager
+    const editBase = productBases.find((pb) => pb.slug === template.productBaseSlug);
+    if (editBase?.source === "db" && editBase.defaultPrintAreaX != null) {
+      setPrintAreaX(editBase.defaultPrintAreaX);
+      setPrintAreaY(editBase.defaultPrintAreaY!);
+      setPrintAreaWidth(editBase.defaultPrintAreaWidth!);
+      setPrintAreaHeight(editBase.defaultPrintAreaHeight!);
     } else {
-      // Fall back to static registry, then template stored values
-      const editBase = PRODUCT_BASES.find((pb) => pb.slug === template.productBaseSlug);
-      const editPlacement = editBase?.placements.find((p) => p.placementKey === template.placementKey);
+      // Fall back to static registry placement, then template stored values
+      const registryBase = PRODUCT_BASES.find((pb) => pb.slug === template.productBaseSlug);
+      const editPlacement = registryBase?.placements.find((p) => p.placementKey === template.placementKey);
       if (editPlacement) {
         setPrintAreaX(editPlacement.mockupPosition.x);
         setPrintAreaY(editPlacement.mockupPosition.y);
@@ -664,24 +694,22 @@ export default function ProductBasesPage() {
   }, [templates]);
 
   // When base changes, set defaults (only in create mode)
-  // Prefer DB product base print area (from Mockup Manager) over static registry
+  // DB product base print area (from Mockup Manager) is authoritative
   useEffect(() => {
     if (!editingTemplateId) {
-      if (selectedDbBase) {
-        // DB product base is authoritative — use Mockup Manager values
-        setPrintAreaX(selectedDbBase.defaultPrintAreaX);
-        setPrintAreaY(selectedDbBase.defaultPrintAreaY);
-        setPrintAreaWidth(selectedDbBase.defaultPrintAreaWidth);
-        setPrintAreaHeight(selectedDbBase.defaultPrintAreaHeight);
-      } else if (selectedPlacementSpec) {
-        // Fall back to static registry placement spec
+      if (isDbBase && selectedBase?.defaultPrintAreaX != null) {
+        setPrintAreaX(selectedBase.defaultPrintAreaX);
+        setPrintAreaY(selectedBase.defaultPrintAreaY!);
+        setPrintAreaWidth(selectedBase.defaultPrintAreaWidth!);
+        setPrintAreaHeight(selectedBase.defaultPrintAreaHeight!);
+      } else if (selectedPlacementSpec?.mockupPosition) {
         setPrintAreaX(selectedPlacementSpec.mockupPosition.x);
         setPrintAreaY(selectedPlacementSpec.mockupPosition.y);
         setPrintAreaWidth(selectedPlacementSpec.mockupPosition.width);
         setPrintAreaHeight(selectedPlacementSpec.mockupPosition.height);
       }
     }
-  }, [selectedPlacementSpec, selectedDbBase, editingTemplateId]);
+  }, [selectedPlacementSpec, selectedBase, isDbBase, editingTemplateId]);
 
   // When technique changes, add default layer (only in create mode)
   useEffect(() => {
@@ -856,93 +884,186 @@ export default function ProductBasesPage() {
 
   // ─── Render Wizard Steps ────────────────────────────────────────────────
 
-  const renderStep1 = () => (
-    <BlockStack gap="400">
-      <Text as="h2" variant="headingMd">Step 1: Select Product Base</Text>
-      <Text as="p" variant="bodyMd" tone="subdued">
-        Choose the Printful product this template is for. Each base has pre-configured
-        print specs, placements, and variant colors.
-      </Text>
-      <ChoiceList
-        title="Product Base"
-        choices={productBases.map((pb) => ({
-          label: `${pb.name} (${pb.brand} ${pb.model}) — ${pb.category}`,
-          value: pb.slug,
-          helpText: `${pb.variants.length} colors, ${pb.techniques.map((t) => t.displayName).join(", ")}`,
-        }))}
-        selected={selectedBaseSlug ? [selectedBaseSlug] : []}
-        onChange={(val) => {
-          setSelectedBaseSlug(val[0]);
-          setSelectedTechnique("");
-          setSelectedPlacement("");
-          setLayers([]);
-        }}
-      />
-    </BlockStack>
-  );
+  const renderStep1 = () => {
+    const dbBases = productBases.filter((pb) => pb.source === "db");
+    const staticBases = productBases.filter((pb) => pb.source === "static");
+    return (
+      <BlockStack gap="400">
+        <Text as="h2" variant="headingMd">Step 1: Select Product Base</Text>
+        <Text as="p" variant="bodyMd" tone="subdued">
+          Choose the product this template is for. Imported products appear first.
+        </Text>
+        {dbBases.length > 0 && (
+          <>
+            <Text as="h3" variant="headingSm">Imported Product Bases</Text>
+            <ChoiceList
+              title=""
+              choices={dbBases.map((pb) => ({
+                label: `${pb.name} (${pb.brand} ${pb.model}) — ${pb.category}`,
+                value: pb.slug,
+                helpText: `${pb.fulfillmentProvider} · ${pb.variants.length} color(s)${pb.printFileWidth ? ` · ${pb.printFileWidth}×${pb.printFileHeight}px` : ""}${pb.techniques.length > 0 ? " · " + pb.techniques.map((t: any) => t.displayName || t.key).join(", ") : ""}`,
+              }))}
+              selected={selectedBaseSlug ? [selectedBaseSlug] : []}
+              onChange={(val) => {
+                setSelectedBaseSlug(val[0]);
+                setSelectedTechnique("");
+                setSelectedPlacement("");
+                setLayers([]);
+              }}
+            />
+          </>
+        )}
+        {dbBases.length === 0 && (
+          <Banner tone="warning">
+            <Text as="p" variant="bodyMd">
+              No imported product bases yet. Go to <strong>Import Product Bases</strong> to import products from Printify or Printful.
+            </Text>
+          </Banner>
+        )}
+        {staticBases.length > 0 && (
+          <>
+            <Divider />
+            <Text as="h3" variant="headingSm" tone="subdued">Built-in Product Bases</Text>
+            <ChoiceList
+              title=""
+              choices={staticBases.map((pb) => ({
+                label: `${pb.name} (${pb.brand} ${pb.model}) — ${pb.category}`,
+                value: pb.slug,
+                helpText: `${pb.variants.length} colors, ${pb.techniques.map((t: any) => t.displayName || t.key).join(", ")}`,
+              }))}
+              selected={selectedBaseSlug ? [selectedBaseSlug] : []}
+              onChange={(val) => {
+                setSelectedBaseSlug(val[0]);
+                setSelectedTechnique("");
+                setSelectedPlacement("");
+                setLayers([]);
+              }}
+            />
+          </>
+        )}
+      </BlockStack>
+    );
+  };
 
-  const renderStep2 = () => (
-    <BlockStack gap="400">
-      <Text as="h2" variant="headingMd">Step 2: Choose Technique & Placement</Text>
-      <Select
-        label="Technique"
-        options={[
-          { label: "Select technique...", value: "" },
-          ...availableTechniques.map((t) => ({
-            label: `${t.displayName}${t.isDefault ? " (default)" : ""}`,
-            value: t.key,
-          })),
-        ]}
-        value={selectedTechnique}
-        onChange={(val) => {
-          setSelectedTechnique(val);
-          setSelectedPlacement("");
-          setLayers([]);
-        }}
-      />
-      {selectedTechnique && (
-        <Select
-          label="Placement"
-          options={[
-            { label: "Select placement...", value: "" },
-            ...availablePlacements.map((p) => ({
-              label: `${p.displayName} (${p.maxAreaInches.width}" × ${p.maxAreaInches.height}" — ${p.fileSizePx.width}×${p.fileSizePx.height}px)`,
-              value: p.placementKey,
-            })),
-          ]}
-          value={selectedPlacement}
-          onChange={setSelectedPlacement}
-        />
-      )}
-      {selectedPlacementSpec && (
-        <Banner tone="info">
-          <Text as="p" variant="bodyMd">
-            Print file: {selectedPlacementSpec.fileSizePx.width} × {selectedPlacementSpec.fileSizePx.height}px
-            at {selectedPlacementSpec.dpi} DPI
-            ({selectedPlacementSpec.maxAreaInches.width}" × {selectedPlacementSpec.maxAreaInches.height}")
-            {selectedPlacementSpec.supports3dPuff && " — 3D Puff available"}
-          </Text>
-        </Banner>
-      )}
-    </BlockStack>
-  );
+  const renderStep2 = () => {
+    // DB products may have techniques/placements or may just have print file specs
+    const hasTechniques = availableTechniques.length > 0;
+    const hasPlacements = availablePlacements.length > 0;
+
+    return (
+      <BlockStack gap="400">
+        <Text as="h2" variant="headingMd">Step 2: Choose Technique & Placement</Text>
+        {hasTechniques ? (
+          <Select
+            label="Technique"
+            options={[
+              { label: "Select technique...", value: "" },
+              ...availableTechniques.map((t: any) => ({
+                label: `${t.displayName || t.key}${t.isDefault ? " (default)" : ""}`,
+                value: t.key,
+              })),
+            ]}
+            value={selectedTechnique}
+            onChange={(val) => {
+              setSelectedTechnique(val);
+              setSelectedPlacement("");
+              setLayers([]);
+            }}
+          />
+        ) : (
+          <>
+            <Banner tone="info">
+              <Text as="p" variant="bodyMd">
+                This product base does not have specific techniques configured.
+                Select a general technique below.
+              </Text>
+            </Banner>
+            <Select
+              label="Technique"
+              options={[
+                { label: "Select technique...", value: "" },
+                { label: "DTG Printing", value: "dtg" },
+                { label: "DTF Printing", value: "dtf" },
+                { label: "Sublimation", value: "sublimation" },
+                { label: "Embroidery", value: "embroidery" },
+              ]}
+              value={selectedTechnique}
+              onChange={(val) => {
+                setSelectedTechnique(val);
+                setSelectedPlacement("");
+                setLayers([]);
+              }}
+            />
+          </>
+        )}
+        {selectedTechnique && hasPlacements && (
+          <Select
+            label="Placement"
+            options={[
+              { label: "Select placement...", value: "" },
+              ...availablePlacements.map((p: any) => ({
+                label: `${p.displayName || p.placementKey}${p.fileSizePx ? ` (${p.fileSizePx.width}×${p.fileSizePx.height}px)` : ""}`,
+                value: p.placementKey,
+              })),
+            ]}
+            value={selectedPlacement}
+            onChange={setSelectedPlacement}
+          />
+        )}
+        {selectedTechnique && !hasPlacements && (
+          <>
+            <Select
+              label="Placement"
+              options={[
+                { label: "Select placement...", value: "" },
+                { label: "Front", value: "front" },
+                { label: "Back", value: "back" },
+                { label: "Left Chest", value: "left_chest" },
+                { label: "Full", value: "full" },
+              ]}
+              value={selectedPlacement}
+              onChange={setSelectedPlacement}
+            />
+            {isDbBase && selectedBase?.printFileWidth && (
+              <Banner tone="info">
+                <Text as="p" variant="bodyMd">
+                  Print file: {selectedBase.printFileWidth} × {selectedBase.printFileHeight}px
+                  {selectedBase.printFileDpi ? ` at ${selectedBase.printFileDpi} DPI` : ""}
+                </Text>
+              </Banner>
+            )}
+          </>
+        )}
+        {selectedPlacementSpec && (
+          <Banner tone="info">
+            <Text as="p" variant="bodyMd">
+              Print file: {selectedPlacementSpec.fileSizePx?.width} × {selectedPlacementSpec.fileSizePx?.height}px
+              {selectedPlacementSpec.dpi ? ` at ${selectedPlacementSpec.dpi} DPI` : ""}
+              {selectedPlacementSpec.maxAreaInches ? ` (${selectedPlacementSpec.maxAreaInches.width}" × ${selectedPlacementSpec.maxAreaInches.height}")` : ""}
+              {selectedPlacementSpec.supports3dPuff && " — 3D Puff available"}
+            </Text>
+          </Banner>
+        )}
+      </BlockStack>
+    );
+  };
 
   // Derive the mockup URL for the layer editor based on selected preview variant color
-  // Priority: DB product base variant mockup > DB product base default > static registry > template mockup
+  // Priority: variant mockup > default mockup > template mockup > static registry
   const editorMockupUrl = (() => {
-    // Check DB product base variant mockups first
-    if (previewVariantColor && selectedDbBase?.variants) {
-      const dbVariant = selectedDbBase.variants.find((v) => v.color === previewVariantColor);
-      if (dbVariant?.mockupImageUrl) return dbVariant.mockupImageUrl;
+    // Check variant mockups (works for both DB and static bases)
+    if (previewVariantColor && selectedBase?.variants) {
+      const variant = selectedBase.variants.find((v) => v.color === previewVariantColor);
+      if (variant?.mockupImageUrl) return variant.mockupImageUrl;
     }
-    // Then check static registry variant mockups
+    // Also check static registry variant mockups (different structure)
     if (previewVariantColor && selectedBaseFromRegistry?.variantMockups) {
       const url = selectedBaseFromRegistry.variantMockups[previewVariantColor];
       if (url) return url;
     }
-    // DB product base default mockup (from Mockup Manager)
-    if (selectedDbBase?.defaultMockupUrl) return selectedDbBase.defaultMockupUrl;
-    // Otherwise fall back to editing template's mockup or static registry default
+    // Default mockup from unified base (DB or static)
+    if (selectedBase?.defaultMockupUrl) return selectedBase.defaultMockupUrl;
+    // Otherwise fall back to editing template's mockup
     if (editingTemplateId) {
       const tmpl = templates.find((t) => t.id === editingTemplateId);
       if (tmpl?.mockupImages?.[0]?.imageUrl) return tmpl.mockupImages[0].imageUrl;
@@ -951,7 +1072,7 @@ export default function ProductBasesPage() {
   })();
 
   // Lock print area in template wizard when DB product base has print area set
-  const shouldLockPrintArea = !!selectedDbBase;
+  const shouldLockPrintArea = isDbBase && selectedBase?.defaultPrintAreaX != null;
 
   const renderStep3 = () => (
     <BlockStack gap="400">
@@ -960,7 +1081,8 @@ export default function ProductBasesPage() {
         Drag the print area to position it on the mockup. Add layers and drag them within the print area.
         Use the properties panel on the right to configure each layer.
       </Text>
-      {selectedBaseFromRegistry?.variantMockups && Object.keys(selectedBaseFromRegistry.variantMockups).length > 1 && (
+      {/* Variant color picker — works with both DB and static bases */}
+      {selectedBase && selectedBase.variants.length > 1 && (
         <InlineStack gap="200" align="start" blockAlign="center">
           <Text as="span" variant="bodyMd" fontWeight="semibold">Preview Color:</Text>
           <select
@@ -975,8 +1097,8 @@ export default function ProductBasesPage() {
             }}
           >
             <option value="">Default</option>
-            {Object.keys(selectedBaseFromRegistry.variantMockups).map((colorName) => (
-              <option key={colorName} value={colorName}>{colorName}</option>
+            {selectedBase.variants.map((v) => (
+              <option key={v.color} value={v.color}>{v.color}</option>
             ))}
           </select>
         </InlineStack>

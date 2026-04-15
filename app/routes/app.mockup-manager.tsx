@@ -632,27 +632,21 @@ export default function MockupManagerPage() {
     }
   }, [productBases]);
 
-  // When selecting a variant, load its print area
+  // When selecting a variant, load its print area override if it has one.
+  // If the variant has no override, keep the current print area (don't reset).
   const handleSelectVariant = useCallback((variantId: string) => {
     setSelectedVariantId(variantId);
     const variant = selectedBase?.variants.find((v) => v.id === variantId);
-    if (variant) {
-      if (variant.printAreaX != null) {
-        setPrintArea({
-          x: variant.printAreaX!,
-          y: variant.printAreaY!,
-          w: variant.printAreaWidth!,
-          h: variant.printAreaHeight!,
-        });
-      } else if (selectedBase) {
-        setPrintArea({
-          x: selectedBase.defaultPrintAreaX,
-          y: selectedBase.defaultPrintAreaY,
-          w: selectedBase.defaultPrintAreaWidth,
-          h: selectedBase.defaultPrintAreaHeight,
-        });
-      }
+    if (variant && variant.printAreaX != null) {
+      // Variant has its own saved print area override — use it
+      setPrintArea({
+        x: variant.printAreaX!,
+        y: variant.printAreaY!,
+        w: variant.printAreaWidth!,
+        h: variant.printAreaHeight!,
+      });
     }
+    // Otherwise keep current print area position (no reset)
   }, [selectedBase]);
 
   // Save print area

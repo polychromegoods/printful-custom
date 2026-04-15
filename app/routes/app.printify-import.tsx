@@ -26,7 +26,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -320,6 +320,7 @@ function PrintfulSearch({ onSelect }: { onSelect: (product: any) => void }) {
   const [loading, setLoading] = useState(false);
   const [allProducts, setAllProducts] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [browseCategory, setBrowseCategory] = useState("");
   const debounceRef = useRef<NodeJS.Timeout>();
 
   const loadProducts = useCallback(async () => {
@@ -335,40 +336,96 @@ function PrintfulSearch({ onSelect }: { onSelect: (product: any) => void }) {
     setLoading(false);
   }, [loaded]);
 
-  useEffect(() => {
-    if (!loaded) return;
-    if (!query.trim()) { setResults([]); return; }
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
+  // Auto-load on mount so catalog is ready
+  useEffect(() => { loadProducts(); }, [loadProducts]);
+
+  // Get unique product types for browse categories
+  const productTypes = useMemo(() => {
+    const types = new Map<string, number>();
+    for (const p of allProducts) {
+      const t = p.type || p.typeName || "Other";
+      types.set(t, (types.get(t) || 0) + 1);
+    }
+    return Array.from(types.entries()).sort((a, b) => b[1] - a[1]);
+  }, [allProducts]);
+
+  // Filter products by search query and/or browse category
+  const filteredProducts = useMemo(() => {
+    let filtered = allProducts;
+    if (browseCategory) {
+      filtered = filtered.filter(
+        (p) => (p.type || p.typeName || "Other") === browseCategory
+      );
+    }
+    if (query.trim()) {
       const q = query.toLowerCase();
-      setResults(allProducts.filter(
+      filtered = filtered.filter(
         (p) => p.title?.toLowerCase().includes(q) || p.brand?.toLowerCase().includes(q) ||
           p.model?.toLowerCase().includes(q) || p.type?.toLowerCase().includes(q) ||
           p.typeName?.toLowerCase().includes(q) || String(p.id).includes(q)
-      ).slice(0, 20));
-    }, 200);
-  }, [query, allProducts, loaded]);
+      );
+    }
+    return filtered.slice(0, 50);
+  }, [query, allProducts, browseCategory]);
+
+  // Show results when we have a query or a browse category
+  const showResults = loaded && (query.trim() || browseCategory);
 
   return (
     <BlockStack gap="300">
       <TextField
         label="Search Printful Catalog"
         value={query}
-        onChange={setQuery}
-        onFocus={loadProducts}
+        onChange={(v) => { setQuery(v); setBrowseCategory(""); }}
         placeholder="e.g. 'mug', 'tote', 'gildan'..."
         autoComplete="off"
         connectedRight={loading ? <Spinner size="small" /> : undefined}
       />
-      {!loaded && !loading && (
-        <Text as="p" variant="bodySm" tone="subdued">Click the search field to load the Printful catalog</Text>
+      {loading && (
+        <Text as="p" variant="bodySm" tone="subdued">Loading Printful catalog... this may take a moment</Text>
       )}
-      {loaded && query && results.length === 0 && (
-        <Text as="p" variant="bodySm" tone="subdued">No results for "{query}"</Text>
+      {loaded && (
+        <Text as="p" variant="bodySm" tone="subdued">
+          {allProducts.length} products loaded
+          {showResults ? ` · Showing ${filteredProducts.length} results` : " · Search or browse by category below"}
+        </Text>
       )}
-      {results.length > 0 && (
-        <div style={{ maxHeight: "360px", overflowY: "auto", border: "1px solid #ddd", borderRadius: "8px" }}>
-          {results.map((p) => (
+      {loaded && productTypes.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          {browseCategory && (
+            <button
+              onClick={() => setBrowseCategory("")}
+              style={{
+                padding: "4px 10px", fontSize: "12px", borderRadius: "12px",
+                border: "1px solid #333", background: "#333", color: "#fff", cursor: "pointer"
+              }}
+            >
+              Clear filter
+            </button>
+          )}
+          {productTypes.slice(0, 15).map(([type, count]) => (
+            <button
+              key={type}
+              onClick={() => { setBrowseCategory(type === browseCategory ? "" : type); setQuery(""); }}
+              style={{
+                padding: "4px 10px", fontSize: "12px", borderRadius: "12px",
+                border: `1px solid ${type === browseCategory ? "#333" : "#ccc"}`,
+                background: type === browseCategory ? "#333" : "#fff",
+                color: type === browseCategory ? "#fff" : "#333",
+                cursor: "pointer"
+              }}
+            >
+              {type} ({count})
+            </button>
+          ))}
+        </div>
+      )}
+      {showResults && filteredProducts.length === 0 && (
+        <Text as="p" variant="bodySm" tone="subdued">No results found</Text>
+      )}
+      {showResults && filteredProducts.length > 0 && (
+        <div style={{ maxHeight: "400px", overflowY: "auto", border: "1px solid #ddd", borderRadius: "8px" }}>
+          {filteredProducts.map((p) => (
             <div key={p.id} onClick={() => onSelect(p)}
               style={{ padding: "12px 16px", borderBottom: "1px solid #eee", cursor: "pointer", display: "flex", alignItems: "center", gap: "12px" }}
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#f5f5f5")}
@@ -377,7 +434,10 @@ function PrintfulSearch({ onSelect }: { onSelect: (product: any) => void }) {
               {p.image && <img src={p.image} alt={p.title} style={{ width: "48px", height: "48px", objectFit: "contain", borderRadius: "4px" }} />}
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: "14px" }}>{p.title}</div>
-                <div style={{ fontSize: "12px", color: "#666" }}>{p.brand || "Printful"} · ID #{p.id}</div>
+                <div style={{ fontSize: "12px", color: "#666" }}>
+                  {p.brand || "Printful"} · ID #{p.id}
+                  {p.techniques?.length > 0 && ` · ${p.techniques.join(", ")}`}
+                </div>
               </div>
             </div>
           ))}
