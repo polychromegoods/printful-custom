@@ -15,7 +15,7 @@ import path from "path";
 import { registerFont, createCanvas, loadImage } from "canvas";
 import os from "os";
 import { useState, useCallback, useEffect, useRef } from "react";
-import { AppProvider, Page, Card, FormLayout, Text, TextField, Button, Layout, BlockStack, InlineStack, Badge, Divider, Select, Spinner, Banner, Thumbnail, EmptyState, Checkbox, IndexTable, Box, Modal, DropZone, ChoiceList, Link as Link$1, List, Tooltip } from "@shopify/polaris";
+import { AppProvider, Page, Card, FormLayout, Text, TextField, Button, Layout, BlockStack, Banner, Tabs, Box, Divider, InlineStack, Badge, Select, Spinner, Thumbnail, EmptyState, Checkbox, IndexTable, Modal, DropZone, ChoiceList, Link as Link$1, List, Tooltip } from "@shopify/polaris";
 import { AppProvider as AppProvider$1 } from "@shopify/shopify-app-remix/react";
 import { NavMenu, TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 if (process.env.NODE_ENV !== "production") {
@@ -117,14 +117,14 @@ const route0 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProper
   __proto__: null,
   default: App$2
 }, Symbol.toStringTag, { value: "Module" }));
-const PRINTFUL_TOKEN$2 = process.env.PRINTFUL_TOKEN || "";
-const PRINTFUL_API$1 = "https://api.printful.com";
+const PRINTFUL_TOKEN$3 = process.env.PRINTFUL_TOKEN || "";
+const PRINTFUL_API$2 = "https://api.printful.com";
 const APP_URL$1 = process.env.SHOPIFY_APP_URL || process.env.APP_URL || "https://printful-custom-production.up.railway.app";
-const loader$h = async ({ request }) => {
+const loader$i = async ({ request }) => {
   try {
-    const response = await fetch(`${PRINTFUL_API$1}/webhooks`, {
+    const response = await fetch(`${PRINTFUL_API$2}/webhooks`, {
       headers: {
-        Authorization: `Bearer ${PRINTFUL_TOKEN$2}`,
+        Authorization: `Bearer ${PRINTFUL_TOKEN$3}`,
         "Content-Type": "application/json"
       }
     });
@@ -143,10 +143,10 @@ const action$b = async ({ request }) => {
   const webhookUrl = `${APP_URL$1}/api/printful-webhook`;
   console.log(`[printful-webhook-setup] Registering webhook: ${webhookUrl}`);
   try {
-    const response = await fetch(`${PRINTFUL_API$1}/webhooks`, {
+    const response = await fetch(`${PRINTFUL_API$2}/webhooks`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${PRINTFUL_TOKEN$2}`,
+        Authorization: `Bearer ${PRINTFUL_TOKEN$3}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
@@ -203,7 +203,7 @@ const action$b = async ({ request }) => {
 const route1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   action: action$b,
-  loader: loader$h
+  loader: loader$i
 }, Symbol.toStringTag, { value: "Module" }));
 const PRINTIFY_TOKEN$2 = process.env.PRINTIFY_TOKEN || "";
 const PRINTIFY_SHOP_ID$1 = process.env.PRINTIFY_SHOP_ID || "12491740";
@@ -269,7 +269,7 @@ const action$a = async ({ request }) => {
     );
   }
 };
-const loader$g = async () => {
+const loader$h = async () => {
   try {
     const res = await fetch(
       `${PRINTIFY_API$2}/shops/${PRINTIFY_SHOP_ID$1}/webhooks.json`,
@@ -295,7 +295,7 @@ const loader$g = async () => {
 const route2 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   action: action$a,
-  loader: loader$g
+  loader: loader$h
 }, Symbol.toStringTag, { value: "Module" }));
 const action$9 = async ({ request }) => {
   const { payload, session, topic, shop } = await authenticate.webhook(request);
@@ -392,7 +392,7 @@ const action$8 = async ({ request }) => {
     );
   }
 };
-const loader$f = async ({ request }) => {
+const loader$g = async ({ request }) => {
   if (request.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
@@ -417,21 +417,21 @@ const loader$f = async ({ request }) => {
 const route4 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   action: action$8,
-  loader: loader$f
+  loader: loader$g
 }, Symbol.toStringTag, { value: "Module" }));
-const PRINTFUL_TOKEN$1 = process.env.PRINTFUL_TOKEN || "";
+const PRINTFUL_TOKEN$2 = process.env.PRINTFUL_TOKEN || "";
 const APP_URL = process.env.SHOPIFY_APP_URL || process.env.APP_URL || "https://printful-custom-production.up.railway.app";
-const loader$e = async ({ request }) => {
+const loader$f = async ({ request }) => {
   const url = new URL(request.url);
   const fileUrl = url.searchParams.get("url") || `${APP_URL}/api/print-files/pf-1776194486126-r6wa7gjlbb.png`;
   console.log(`[test-upload] Testing Printful file upload with URL: ${fileUrl}`);
-  console.log(`[test-upload] PRINTFUL_TOKEN present: ${!!PRINTFUL_TOKEN$1}`);
-  console.log(`[test-upload] PRINTFUL_TOKEN length: ${PRINTFUL_TOKEN$1.length}`);
+  console.log(`[test-upload] PRINTFUL_TOKEN present: ${!!PRINTFUL_TOKEN$2}`);
+  console.log(`[test-upload] PRINTFUL_TOKEN length: ${PRINTFUL_TOKEN$2.length}`);
   try {
     const fileResponse = await fetch("https://api.printful.com/files", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${PRINTFUL_TOKEN$1}`,
+        Authorization: `Bearer ${PRINTFUL_TOKEN$2}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
@@ -448,8 +448,8 @@ const loader$e = async ({ request }) => {
       ok: fileResponse.ok,
       result: fileData,
       testedUrl: fileUrl,
-      tokenPresent: !!PRINTFUL_TOKEN$1,
-      tokenLength: PRINTFUL_TOKEN$1.length
+      tokenPresent: !!PRINTFUL_TOKEN$2,
+      tokenLength: PRINTFUL_TOKEN$2.length
     });
   } catch (error) {
     return json({
@@ -461,7 +461,7 @@ const loader$e = async ({ request }) => {
 };
 const route5 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  loader: loader$e
+  loader: loader$f
 }, Symbol.toStringTag, { value: "Module" }));
 const action$7 = async ({ request }) => {
   const { shop, session, topic } = await authenticate.webhook(request);
@@ -1035,15 +1035,15 @@ async function generatePrintFileAsync(options) {
   );
   return outputPath;
 }
-const PRINTFUL_TOKEN = process.env.PRINTFUL_TOKEN || "";
-const PRINTFUL_API = "https://api.printful.com";
+const PRINTFUL_TOKEN$1 = process.env.PRINTFUL_TOKEN || "";
+const PRINTFUL_API$1 = "https://api.printful.com";
 const API_VERSION = "2025-01";
 async function printfulRequest(endpoint, method = "GET", body) {
-  const url = `${PRINTFUL_API}${endpoint}`;
+  const url = `${PRINTFUL_API$1}${endpoint}`;
   const options = {
     method,
     headers: {
-      Authorization: `Bearer ${PRINTFUL_TOKEN}`,
+      Authorization: `Bearer ${PRINTFUL_TOKEN$1}`,
       "Content-Type": "application/json"
     }
   };
@@ -1939,6 +1939,77 @@ const route7 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProper
   __proto__: null,
   action: action$6
 }, Symbol.toStringTag, { value: "Module" }));
+const PRINTFUL_TOKEN = process.env.PRINTFUL_TOKEN || "";
+const PRINTFUL_API = "https://api.printful.com";
+async function pfFetch(path2) {
+  const res = await fetch(`${PRINTFUL_API}${path2}`, {
+    headers: { Authorization: `Bearer ${PRINTFUL_TOKEN}` }
+  });
+  if (!res.ok) {
+    const text2 = await res.text();
+    throw new Error(`Printful API error ${res.status}: ${text2.slice(0, 200)}`);
+  }
+  return res.json();
+}
+const loader$e = async ({ request }) => {
+  var _a2, _b, _c;
+  const url = new URL(request.url);
+  const action2 = url.searchParams.get("action");
+  try {
+    if (action2 === "products") {
+      const allProducts = [];
+      let offset = 0;
+      const limit = 100;
+      while (true) {
+        const data = await pfFetch(`/products?limit=${limit}&offset=${offset}`);
+        const items = data.result || [];
+        allProducts.push(...items);
+        if (items.length < limit) break;
+        offset += limit;
+        if (offset > 1e3) break;
+      }
+      const products = allProducts.map((p) => ({
+        id: p.id,
+        title: p.type_name || p.title,
+        brand: p.brand || null,
+        model: p.model || p.type_name,
+        image: p.image || null,
+        variantCount: p.variant_count || 0,
+        techniques: (p.techniques || []).map((t) => t.display_name)
+      }));
+      return json({ products });
+    }
+    if (action2 === "variants") {
+      const productId = url.searchParams.get("productId");
+      if (!productId) return json({ error: "productId required" }, { status: 400 });
+      const data = await pfFetch(`/products/${productId}`);
+      const rawVariants = ((_a2 = data.result) == null ? void 0 : _a2.variants) || [];
+      const colorMap = /* @__PURE__ */ new Map();
+      for (const v of rawVariants) {
+        const color = v.color || ((_c = (_b = v.name) == null ? void 0 : _b.split(" / ")) == null ? void 0 : _c[0]) || v.name;
+        if (!colorMap.has(color)) {
+          colorMap.set(color, {
+            id: v.id,
+            name: v.name,
+            color,
+            colorCode: v.color_code || "#ffffff",
+            size: v.size || null,
+            image: v.image || null
+          });
+        }
+      }
+      return json({ variants: Array.from(colorMap.values()) });
+    }
+    return json({ error: "Unknown action" }, { status: 400 });
+  } catch (error) {
+    console.error("[printful-catalog]", error.message);
+    return json({ error: error.message }, { status: 500 });
+  }
+};
+const route8 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  loader: loader$e
+}, Symbol.toStringTag, { value: "Module" }));
 const action$5 = async ({ request }) => {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -2175,7 +2246,7 @@ async function syncTrackingToShopify$1(record, tracking) {
     );
   }
 }
-const route8 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route9 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   action: action$5
 }, Symbol.toStringTag, { value: "Module" }));
@@ -2245,7 +2316,7 @@ const loader$d = async ({ request }) => {
     return json({ error: error.message }, { status: 500 });
   }
 };
-const route9 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route10 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   loader: loader$d
 }, Symbol.toStringTag, { value: "Module" }));
@@ -2453,7 +2524,7 @@ async function syncTrackingToShopify(record, tracking) {
     );
   }
 }
-const route10 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route11 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   action: action$4
 }, Symbol.toStringTag, { value: "Module" }));
@@ -2500,7 +2571,7 @@ const loader$c = async ({ request }) => {
     );
   }
 };
-const route11 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route12 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   loader: loader$c
 }, Symbol.toStringTag, { value: "Module" }));
@@ -2527,7 +2598,7 @@ const loader$b = async ({ params }) => {
     }
   });
 };
-const route12 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route13 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   loader: loader$b
 }, Symbol.toStringTag, { value: "Module" }));
@@ -2558,7 +2629,7 @@ const loader$a = async ({ request }) => {
     }))
   });
 };
-const route13 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route14 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   loader: loader$a
 }, Symbol.toStringTag, { value: "Module" }));
@@ -2861,7 +2932,7 @@ const loader$9 = async ({ request }) => {
     );
   }
 };
-const route14 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route15 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   loader: loader$9
 }, Symbol.toStringTag, { value: "Module" }));
@@ -3166,7 +3237,7 @@ const loader$8 = async ({ request }) => {
     }
   });
 };
-const route15 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route16 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   loader: loader$8
 }, Symbol.toStringTag, { value: "Module" }));
@@ -3217,7 +3288,7 @@ function Auth() {
     /* @__PURE__ */ jsx(Button, { submit: true, children: "Log in" })
   ] }) }) }) }) });
 }
-const route16 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route17 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   action: action$3,
   default: Auth,
@@ -3280,7 +3351,7 @@ function App$1() {
     ] })
   ] }) });
 }
-const route17 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route18 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: App$1,
   loader: loader$6
@@ -3289,7 +3360,7 @@ const loader$5 = async ({ request }) => {
   await authenticate.admin(request);
   return null;
 };
-const route18 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route19 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   loader: loader$5
 }, Symbol.toStringTag, { value: "Module" }));
@@ -3316,7 +3387,7 @@ function ErrorBoundary() {
 const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
-const route19 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route20 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   ErrorBoundary,
   default: App,
@@ -3324,12 +3395,11 @@ const route19 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePrope
   links,
   loader: loader$4
 }, Symbol.toStringTag, { value: "Module" }));
-process.env.PRINTIFY_TOKEN || "";
 const loader$3 = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const existingBases = await prisma.productBaseDef.findMany({
     where: { shop: session.shop },
-    select: { slug: true, printifyBlueprintId: true }
+    select: { slug: true, printifyBlueprintId: true, printfulProductId: true }
   });
   return json({ shop: session.shop, existingBases });
 };
@@ -3343,13 +3413,13 @@ const action$2 = async ({ request }) => {
       const blueprintId = parseInt(formData.get("blueprintId"));
       const providerId = parseInt(formData.get("providerId"));
       const blueprintTitle = formData.get("blueprintTitle");
-      const blueprintBrand = formData.get("blueprintBrand");
-      const blueprintModel = formData.get("blueprintModel");
+      const blueprintBrand = formData.get("blueprintBrand") || "";
+      const blueprintModel = formData.get("blueprintModel") || blueprintTitle;
       const blueprintImages = formData.get("blueprintImages");
       const category = formData.get("category");
       const variantsJson = formData.get("variants");
       const providerTitle = formData.get("providerTitle");
-      const slug = `${blueprintBrand}-${blueprintModel}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const slug = `printify-${blueprintBrand || blueprintTitle}-${blueprintModel}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
       const existing = await prisma.productBaseDef.findUnique({
         where: { shop_slug: { shop: session.shop, slug } }
       });
@@ -3368,9 +3438,7 @@ const action$2 = async ({ request }) => {
           fulfillmentProvider: "printify",
           printifyBlueprintId: blueprintId,
           printifyProviderId: providerId,
-          techniques: JSON.stringify([
-            { key: "dtg", displayName: "DTG Print", isDefault: true }
-          ]),
+          techniques: JSON.stringify([{ key: "dtg", displayName: "DTG Print", isDefault: true }]),
           placements: JSON.stringify([
             {
               placementKey: "front",
@@ -3389,9 +3457,7 @@ const action$2 = async ({ request }) => {
       const colorMap = /* @__PURE__ */ new Map();
       for (const v of variants) {
         const color = ((_a2 = v.options) == null ? void 0 : _a2.color) || ((_c = (_b = v.title) == null ? void 0 : _b.split(" / ")) == null ? void 0 : _c[0]) || v.title;
-        if (!colorMap.has(color)) {
-          colorMap.set(color, v);
-        }
+        if (!colorMap.has(color)) colorMap.set(color, v);
       }
       const hasSize = variants.some((v) => {
         var _a3;
@@ -3400,44 +3466,94 @@ const action$2 = async ({ request }) => {
       if (hasSize) {
         for (const [color, v] of colorMap) {
           await prisma.productBaseVariant.create({
-            data: {
-              productBaseId: base.id,
-              color,
-              colorHex: "#ffffff",
-              // Will need to be set manually or via color mapping
-              size: ((_d = v.options) == null ? void 0 : _d.size) || null,
-              printifyVariantId: v.id
-            }
+            data: { productBaseId: base.id, color, colorHex: "#ffffff", size: ((_d = v.options) == null ? void 0 : _d.size) || null, printifyVariantId: v.id }
           });
         }
       } else {
         for (const v of variants) {
           const color = ((_e = v.options) == null ? void 0 : _e.color) || v.title;
           await prisma.productBaseVariant.create({
-            data: {
-              productBaseId: base.id,
-              color,
-              colorHex: "#ffffff",
-              printifyVariantId: v.id
-            }
+            data: { productBaseId: base.id, color, colorHex: "#ffffff", printifyVariantId: v.id }
           });
         }
       }
       return json({
         success: true,
-        message: `Imported "${blueprintTitle}" with ${hasSize ? colorMap.size : variants.length} variants`,
+        message: `Imported "${blueprintTitle}" from Printify with ${hasSize ? colorMap.size : variants.length} variants`,
+        baseId: base.id
+      });
+    }
+    if (intent === "import_printful") {
+      const productId = parseInt(formData.get("productId"));
+      const productTitle = formData.get("productTitle");
+      const productBrand = formData.get("productBrand") || "";
+      const productModel = formData.get("productModel") || productTitle;
+      const productImage = formData.get("productImage") || "";
+      const category = formData.get("category");
+      const variantsJson = formData.get("variants");
+      const slug = `printful-${productBrand || productTitle}-${productModel}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
+      const existing = await prisma.productBaseDef.findUnique({
+        where: { shop_slug: { shop: session.shop, slug } }
+      });
+      if (existing) {
+        return json({ error: `Product base "${slug}" already exists. Delete it first to re-import.` }, { status: 400 });
+      }
+      const variants = JSON.parse(variantsJson);
+      const base = await prisma.productBaseDef.create({
+        data: {
+          shop: session.shop,
+          slug,
+          name: productTitle,
+          brand: productBrand,
+          model: productModel,
+          category,
+          fulfillmentProvider: "printful",
+          printfulProductId: productId,
+          techniques: JSON.stringify([{ key: "dtg", displayName: "DTG Print", isDefault: true }]),
+          placements: JSON.stringify([
+            {
+              placementKey: "front",
+              displayName: "Front",
+              technique: "dtg",
+              maxAreaInches: { width: 10, height: 12 },
+              fileSizePx: { width: 3e3, height: 3600 },
+              dpi: 300,
+              mockupPosition: { x: 15, y: 20, width: 70, height: 65 }
+            }
+          ]),
+          catalogImages: productImage ? JSON.stringify([productImage]) : "[]",
+          description: `${productBrand} ${productModel} — ${productTitle}. Fulfilled via Printful (#${productId})`,
+          defaultMockupUrl: productImage || null
+        }
+      });
+      const colorMap = /* @__PURE__ */ new Map();
+      for (const v of variants) {
+        if (!colorMap.has(v.color)) colorMap.set(v.color, v);
+      }
+      for (const [color, v] of colorMap) {
+        await prisma.productBaseVariant.create({
+          data: {
+            productBaseId: base.id,
+            color,
+            colorHex: v.colorCode || "#ffffff",
+            mockupImageUrl: v.image || null,
+            printfulVariantId: v.id
+          }
+        });
+      }
+      return json({
+        success: true,
+        message: `Imported "${productTitle}" from Printful with ${colorMap.size} color variants`,
         baseId: base.id
       });
     }
     return json({ error: "Unknown intent" }, { status: 400 });
   } catch (error) {
-    console.error("[printify-import] Error:", error);
+    console.error("[import] Error:", error);
     return json({ error: error.message }, { status: 500 });
   }
 };
-function BlueprintSearch({
-  onSelect
-}) {
+function PrintifySearch({ onSelect }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -3470,13 +3586,12 @@ function BlueprintSearch({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       const q = query.toLowerCase();
-      const filtered = allBlueprints.filter(
+      setResults(allBlueprints.filter(
         (bp) => {
           var _a2, _b, _c;
           return ((_a2 = bp.title) == null ? void 0 : _a2.toLowerCase().includes(q)) || ((_b = bp.brand) == null ? void 0 : _b.toLowerCase().includes(q)) || ((_c = bp.model) == null ? void 0 : _c.toLowerCase().includes(q)) || String(bp.id).includes(q);
         }
-      );
-      setResults(filtered.slice(0, 20));
+      ).slice(0, 20));
     }, 200);
   }, [query, allBlueprints, loaded]);
   return /* @__PURE__ */ jsxs(BlockStack, { gap: "300", children: [
@@ -3485,9 +3600,9 @@ function BlueprintSearch({
       {
         label: "Search Printify Catalog",
         value: query,
-        onChange: (val) => setQuery(val),
+        onChange: setQuery,
         onFocus: loadBlueprints,
-        placeholder: "Type to search (e.g., 'tote bag', 'comfort colors', 'bella canvas')...",
+        placeholder: "e.g. 'tote bag', 'mug', 'bella canvas'...",
         autoComplete: "off",
         connectedRight: loading ? /* @__PURE__ */ jsx(Spinner, { size: "small" }) : void 0
       }
@@ -3498,31 +3613,17 @@ function BlueprintSearch({
       query,
       '"'
     ] }),
-    results.length > 0 && /* @__PURE__ */ jsx("div", { style: { maxHeight: "400px", overflowY: "auto", border: "1px solid #ddd", borderRadius: "8px" }, children: results.map((bp) => {
+    results.length > 0 && /* @__PURE__ */ jsx("div", { style: { maxHeight: "360px", overflowY: "auto", border: "1px solid #ddd", borderRadius: "8px" }, children: results.map((bp) => {
       var _a2;
       return /* @__PURE__ */ jsxs(
         "div",
         {
           onClick: () => onSelect(bp),
-          style: {
-            padding: "12px 16px",
-            borderBottom: "1px solid #eee",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "12px"
-          },
+          style: { padding: "12px 16px", borderBottom: "1px solid #eee", cursor: "pointer", display: "flex", alignItems: "center", gap: "12px" },
           onMouseEnter: (e) => e.currentTarget.style.backgroundColor = "#f5f5f5",
           onMouseLeave: (e) => e.currentTarget.style.backgroundColor = "white",
           children: [
-            ((_a2 = bp.images) == null ? void 0 : _a2[0]) && /* @__PURE__ */ jsx(
-              "img",
-              {
-                src: bp.images[0],
-                alt: bp.title,
-                style: { width: "48px", height: "48px", objectFit: "contain", borderRadius: "4px" }
-              }
-            ),
+            ((_a2 = bp.images) == null ? void 0 : _a2[0]) && /* @__PURE__ */ jsx("img", { src: bp.images[0], alt: bp.title, style: { width: "48px", height: "48px", objectFit: "contain", borderRadius: "4px" } }),
             /* @__PURE__ */ jsxs("div", { style: { flex: 1 }, children: [
               /* @__PURE__ */ jsx("div", { style: { fontWeight: 600, fontSize: "14px" }, children: bp.title }),
               /* @__PURE__ */ jsxs("div", { style: { fontSize: "12px", color: "#666" }, children: [
@@ -3540,13 +3641,97 @@ function BlueprintSearch({
     }) })
   ] });
 }
-function PrintifyImportPage() {
+function PrintfulSearch({ onSelect }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [allProducts, setAllProducts] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const debounceRef = useRef();
+  const loadProducts = useCallback(async () => {
+    if (loaded) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/printful-catalog?action=products");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.products) {
+          setAllProducts(data.products);
+          setLoaded(true);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load Printful products:", err);
+    }
+    setLoading(false);
+  }, [loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    if (!query.trim()) {
+      setResults([]);
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const q = query.toLowerCase();
+      setResults(allProducts.filter(
+        (p) => {
+          var _a2, _b, _c;
+          return ((_a2 = p.title) == null ? void 0 : _a2.toLowerCase().includes(q)) || ((_b = p.brand) == null ? void 0 : _b.toLowerCase().includes(q)) || ((_c = p.model) == null ? void 0 : _c.toLowerCase().includes(q)) || String(p.id).includes(q);
+        }
+      ).slice(0, 20));
+    }, 200);
+  }, [query, allProducts, loaded]);
+  return /* @__PURE__ */ jsxs(BlockStack, { gap: "300", children: [
+    /* @__PURE__ */ jsx(
+      TextField,
+      {
+        label: "Search Printful Catalog",
+        value: query,
+        onChange: setQuery,
+        onFocus: loadProducts,
+        placeholder: "e.g. 'mug', 'tote', 'gildan'...",
+        autoComplete: "off",
+        connectedRight: loading ? /* @__PURE__ */ jsx(Spinner, { size: "small" }) : void 0
+      }
+    ),
+    !loaded && !loading && /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "Click the search field to load the Printful catalog" }),
+    loaded && query && results.length === 0 && /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", tone: "subdued", children: [
+      'No results for "',
+      query,
+      '"'
+    ] }),
+    results.length > 0 && /* @__PURE__ */ jsx("div", { style: { maxHeight: "360px", overflowY: "auto", border: "1px solid #ddd", borderRadius: "8px" }, children: results.map((p) => /* @__PURE__ */ jsxs(
+      "div",
+      {
+        onClick: () => onSelect(p),
+        style: { padding: "12px 16px", borderBottom: "1px solid #eee", cursor: "pointer", display: "flex", alignItems: "center", gap: "12px" },
+        onMouseEnter: (e) => e.currentTarget.style.backgroundColor = "#f5f5f5",
+        onMouseLeave: (e) => e.currentTarget.style.backgroundColor = "white",
+        children: [
+          p.image && /* @__PURE__ */ jsx("img", { src: p.image, alt: p.title, style: { width: "48px", height: "48px", objectFit: "contain", borderRadius: "4px" } }),
+          /* @__PURE__ */ jsxs("div", { style: { flex: 1 }, children: [
+            /* @__PURE__ */ jsx("div", { style: { fontWeight: 600, fontSize: "14px" }, children: p.title }),
+            /* @__PURE__ */ jsxs("div", { style: { fontSize: "12px", color: "#666" }, children: [
+              p.brand || "Printful",
+              " · ID #",
+              p.id
+            ] })
+          ] })
+        ]
+      },
+      p.id
+    )) })
+  ] });
+}
+function ImportPage() {
   var _a2;
   const { existingBases } = useLoaderData();
   const actionData = useActionData();
   const submit = useSubmit();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
+  const [selectedTab, setSelectedTab] = useState(0);
   const [selectedBlueprint, setSelectedBlueprint] = useState(null);
   const [providers, setProviders] = useState([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
@@ -3554,35 +3739,42 @@ function PrintifyImportPage() {
   const [loadingProviders, setLoadingProviders] = useState(false);
   const [loadingVariants, setLoadingVariants] = useState(false);
   const [category, setCategory] = useState("accessory");
-  const isAlreadyImported = selectedBlueprint ? existingBases.some((b) => b.printifyBlueprintId === selectedBlueprint.id) : false;
+  const [selectedPFProduct, setSelectedPFProduct] = useState(null);
+  const [pfVariants, setPfVariants] = useState([]);
+  const [loadingPfVariants, setLoadingPfVariants] = useState(false);
+  const [pfCategory, setPfCategory] = useState("accessory");
+  const categoryOptions = [
+    { label: "Shirt", value: "shirt" },
+    { label: "Hoodie", value: "hoodie" },
+    { label: "Hat", value: "hat" },
+    { label: "Bag", value: "bag" },
+    { label: "Accessory", value: "accessory" },
+    { label: "Mug", value: "mug" },
+    { label: "Other", value: "other" }
+  ];
+  const autoCategory = (title) => {
+    const t = title.toLowerCase();
+    if (t.includes("tote") || t.includes("bag") || t.includes("pouch")) return "bag";
+    if (t.includes("hat") || t.includes("cap") || t.includes("beanie")) return "hat";
+    if (t.includes("shirt") || t.includes("tee")) return "shirt";
+    if (t.includes("hoodie") || t.includes("sweatshirt")) return "hoodie";
+    if (t.includes("mug") || t.includes("cup")) return "mug";
+    return "accessory";
+  };
   const handleSelectBlueprint = useCallback(async (bp) => {
-    var _a3;
     setSelectedBlueprint(bp);
     setProviders([]);
     setSelectedProviderId("");
     setVariants([]);
     setLoadingProviders(true);
-    const title = ((_a3 = bp.title) == null ? void 0 : _a3.toLowerCase()) || "";
-    if (title.includes("tote") || title.includes("bag") || title.includes("pouch")) {
-      setCategory("bag");
-    } else if (title.includes("hat") || title.includes("cap") || title.includes("beanie")) {
-      setCategory("hat");
-    } else if (title.includes("shirt") || title.includes("tee")) {
-      setCategory("shirt");
-    } else if (title.includes("hoodie") || title.includes("sweatshirt")) {
-      setCategory("hoodie");
-    } else {
-      setCategory("accessory");
-    }
+    setCategory(autoCategory(bp.title || ""));
     try {
       const res = await fetch(`/api/printify-catalog?action=providers&id=${bp.id}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
           setProviders(data);
-          if (data.length === 1) {
-            setSelectedProviderId(String(data[0].id));
-          }
+          if (data.length === 1) setSelectedProviderId(String(data[0].id));
         }
       }
     } catch (err) {
@@ -3592,28 +3784,22 @@ function PrintifyImportPage() {
   }, []);
   useEffect(() => {
     if (!selectedBlueprint || !selectedProviderId) return;
-    const loadVariants = async () => {
+    const load = async () => {
       setLoadingVariants(true);
       try {
-        const res = await fetch(
-          `/api/printify-catalog?action=variants&blueprint_id=${selectedBlueprint.id}&provider_id=${selectedProviderId}`
-        );
+        const res = await fetch(`/api/printify-catalog?action=variants&blueprint_id=${selectedBlueprint.id}&provider_id=${selectedProviderId}`);
         if (res.ok) {
           const data = await res.json();
-          if (data.variants) {
-            setVariants(data.variants);
-          } else if (Array.isArray(data)) {
-            setVariants(data);
-          }
+          setVariants(data.variants || (Array.isArray(data) ? data : []));
         }
       } catch (err) {
         console.error("Failed to load variants:", err);
       }
       setLoadingVariants(false);
     };
-    loadVariants();
+    load();
   }, [selectedBlueprint, selectedProviderId]);
-  const handleImport = useCallback(() => {
+  const handleImportPrintify = useCallback(() => {
     if (!selectedBlueprint || !selectedProviderId) return;
     const provider = providers.find((p) => String(p.id) === selectedProviderId);
     const fd = new FormData();
@@ -3629,137 +3815,192 @@ function PrintifyImportPage() {
     fd.set("providerTitle", (provider == null ? void 0 : provider.title) || "");
     submit(fd, { method: "post" });
   }, [selectedBlueprint, selectedProviderId, providers, variants, category, submit]);
+  const handleSelectPFProduct = useCallback(async (product) => {
+    setSelectedPFProduct(product);
+    setPfVariants([]);
+    setLoadingPfVariants(true);
+    setPfCategory(autoCategory(product.title || ""));
+    try {
+      const res = await fetch(`/api/printful-catalog?action=variants&productId=${product.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPfVariants(data.variants || []);
+      }
+    } catch (err) {
+      console.error("Failed to load Printful variants:", err);
+    }
+    setLoadingPfVariants(false);
+  }, []);
+  const handleImportPrintful = useCallback(() => {
+    if (!selectedPFProduct) return;
+    const fd = new FormData();
+    fd.set("intent", "import_printful");
+    fd.set("productId", String(selectedPFProduct.id));
+    fd.set("productTitle", selectedPFProduct.title);
+    fd.set("productBrand", selectedPFProduct.brand || "");
+    fd.set("productModel", selectedPFProduct.model || selectedPFProduct.title);
+    fd.set("productImage", selectedPFProduct.image || "");
+    fd.set("category", pfCategory);
+    fd.set("variants", JSON.stringify(pfVariants));
+    submit(fd, { method: "post" });
+  }, [selectedPFProduct, pfVariants, pfCategory, submit]);
+  const isAlreadyImportedPrintify = selectedBlueprint ? existingBases.some((b) => b.printifyBlueprintId === selectedBlueprint.id) : false;
+  const isAlreadyImportedPrintful = selectedPFProduct ? existingBases.some((b) => b.printfulProductId === selectedPFProduct.id) : false;
   const uniqueColors = new Set(
     variants.map((v) => {
       var _a3, _b, _c;
       return ((_a3 = v.options) == null ? void 0 : _a3.color) || ((_c = (_b = v.title) == null ? void 0 : _b.split(" / ")) == null ? void 0 : _c[0]) || v.title;
     })
   );
+  const tabs = [
+    { id: "printify", content: "Printify" },
+    { id: "printful", content: "Printful" }
+  ];
   return /* @__PURE__ */ jsxs(Page, { children: [
-    /* @__PURE__ */ jsx(TitleBar, { title: "Import from Printify" }),
+    /* @__PURE__ */ jsx(TitleBar, { title: "Import Product Base" }),
     /* @__PURE__ */ jsx(Layout, { children: /* @__PURE__ */ jsx(Layout.Section, { children: /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
-      /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
-        /* @__PURE__ */ jsx(Text, { as: "h2", variant: "headingMd", children: "Search Printify Catalog" }),
-        /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "Search for a product in the Printify catalog to import it as a product base. This will create the product base configuration with all variants and provider mappings." }),
-        /* @__PURE__ */ jsx(BlueprintSearch, { onSelect: handleSelectBlueprint })
-      ] }) }),
-      selectedBlueprint && /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
-        /* @__PURE__ */ jsxs(InlineStack, { gap: "400", blockAlign: "start", children: [
-          ((_a2 = selectedBlueprint.images) == null ? void 0 : _a2[0]) && /* @__PURE__ */ jsx(
-            "img",
-            {
-              src: selectedBlueprint.images[0],
-              alt: selectedBlueprint.title,
-              style: {
-                width: "120px",
-                height: "120px",
-                objectFit: "contain",
-                borderRadius: "8px",
-                border: "1px solid #eee"
-              }
-            }
-          ),
-          /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
-            /* @__PURE__ */ jsx(Text, { as: "h2", variant: "headingLg", children: selectedBlueprint.title }),
-            /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", tone: "subdued", children: [
-              selectedBlueprint.brand,
-              " · ",
-              selectedBlueprint.model,
-              " · Blueprint #",
-              selectedBlueprint.id
+      actionData && "error" in actionData && /* @__PURE__ */ jsx(Banner, { tone: "critical", children: /* @__PURE__ */ jsx("p", { children: actionData.error }) }),
+      actionData && "success" in actionData && actionData.success && /* @__PURE__ */ jsx(Banner, { tone: "success", children: /* @__PURE__ */ jsx("p", { children: "message" in actionData ? String(actionData.message) : "Imported successfully!" }) }),
+      /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsx(Tabs, { tabs, selected: selectedTab, onSelect: setSelectedTab, children: /* @__PURE__ */ jsxs(Box, { padding: "400", children: [
+        selectedTab === 0 && /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
+          /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "Search the Printify catalog (1,300+ products) and import as a product base with all variant mappings." }),
+          /* @__PURE__ */ jsx(PrintifySearch, { onSelect: handleSelectBlueprint }),
+          selectedBlueprint && /* @__PURE__ */ jsxs(Fragment, { children: [
+            /* @__PURE__ */ jsx(Divider, {}),
+            /* @__PURE__ */ jsxs(InlineStack, { gap: "400", blockAlign: "start", children: [
+              ((_a2 = selectedBlueprint.images) == null ? void 0 : _a2[0]) && /* @__PURE__ */ jsx(
+                "img",
+                {
+                  src: selectedBlueprint.images[0],
+                  alt: selectedBlueprint.title,
+                  style: { width: "100px", height: "100px", objectFit: "contain", borderRadius: "8px", border: "1px solid #eee" }
+                }
+              ),
+              /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
+                /* @__PURE__ */ jsx(Text, { as: "h2", variant: "headingLg", children: selectedBlueprint.title }),
+                /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", tone: "subdued", children: [
+                  selectedBlueprint.brand,
+                  " · ",
+                  selectedBlueprint.model,
+                  " · Blueprint #",
+                  selectedBlueprint.id
+                ] }),
+                isAlreadyImportedPrintify && /* @__PURE__ */ jsx(Badge, { tone: "warning", children: "Already imported" })
+              ] })
             ] }),
-            isAlreadyImported && /* @__PURE__ */ jsx(Badge, { tone: "warning", children: "Already imported" })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsx(Divider, {}),
-        /* @__PURE__ */ jsx(
-          Select,
-          {
-            label: "Product Category",
-            options: [
-              { label: "Shirt", value: "shirt" },
-              { label: "Hoodie", value: "hoodie" },
-              { label: "Hat", value: "hat" },
-              { label: "Bag", value: "bag" },
-              { label: "Accessory", value: "accessory" }
-            ],
-            value: category,
-            onChange: setCategory
-          }
-        ),
-        /* @__PURE__ */ jsx(Divider, {}),
-        /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
-          /* @__PURE__ */ jsx(Text, { as: "h3", variant: "headingMd", children: "Print Provider" }),
-          loadingProviders ? /* @__PURE__ */ jsxs(InlineStack, { gap: "200", blockAlign: "center", children: [
-            /* @__PURE__ */ jsx(Spinner, { size: "small" }),
-            /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", children: "Loading providers..." })
-          ] }) : providers.length === 0 ? /* @__PURE__ */ jsx(Banner, { tone: "warning", children: /* @__PURE__ */ jsx("p", { children: "No print providers found for this blueprint." }) }) : /* @__PURE__ */ jsx(
-            Select,
-            {
-              label: "Select a print provider",
-              options: [
-                { label: "Choose a provider...", value: "" },
-                ...providers.map((p) => ({
-                  label: `${p.title} (#${p.id})`,
-                  value: String(p.id)
-                }))
-              ],
-              value: selectedProviderId,
-              onChange: setSelectedProviderId
-            }
-          )
-        ] }),
-        selectedProviderId && /* @__PURE__ */ jsxs(Fragment, { children: [
-          /* @__PURE__ */ jsx(Divider, {}),
-          /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
-            /* @__PURE__ */ jsx(Text, { as: "h3", variant: "headingMd", children: "Variants" }),
-            loadingVariants ? /* @__PURE__ */ jsxs(InlineStack, { gap: "200", blockAlign: "center", children: [
-              /* @__PURE__ */ jsx(Spinner, { size: "small" }),
-              /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", children: "Loading variants..." })
-            ] }) : variants.length === 0 ? /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "No variants found" }) : /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
-              /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", children: [
+            /* @__PURE__ */ jsx(Select, { label: "Product Category", options: categoryOptions, value: category, onChange: setCategory }),
+            /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
+              /* @__PURE__ */ jsx(Text, { as: "h3", variant: "headingMd", children: "Print Provider" }),
+              loadingProviders ? /* @__PURE__ */ jsxs(InlineStack, { gap: "200", blockAlign: "center", children: [
+                /* @__PURE__ */ jsx(Spinner, { size: "small" }),
+                /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", children: "Loading providers..." })
+              ] }) : providers.length === 0 ? /* @__PURE__ */ jsx(Banner, { tone: "warning", children: /* @__PURE__ */ jsx("p", { children: "No print providers found for this blueprint." }) }) : /* @__PURE__ */ jsx(
+                Select,
+                {
+                  label: "Select a print provider",
+                  options: [{ label: "Choose a provider...", value: "" }, ...providers.map((p) => ({ label: `${p.title} (#${p.id})`, value: String(p.id) }))],
+                  value: selectedProviderId,
+                  onChange: setSelectedProviderId
+                }
+              )
+            ] }),
+            selectedProviderId && /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
+              /* @__PURE__ */ jsx(Text, { as: "h3", variant: "headingMd", children: "Variants" }),
+              loadingVariants ? /* @__PURE__ */ jsxs(InlineStack, { gap: "200", blockAlign: "center", children: [
+                /* @__PURE__ */ jsx(Spinner, { size: "small" }),
+                /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", children: "Loading variants..." })
+              ] }) : /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", tone: "subdued", children: [
                 variants.length,
                 " total variants · ",
                 uniqueColors.size,
                 " unique colors"
               ] }),
               /* @__PURE__ */ jsxs(InlineStack, { gap: "200", wrap: true, children: [
-                Array.from(uniqueColors).slice(0, 30).map((color) => /* @__PURE__ */ jsx(Badge, { children: color }, color)),
-                uniqueColors.size > 30 && /* @__PURE__ */ jsx(Badge, { tone: "info", children: `+${uniqueColors.size - 30} more` })
+                Array.from(uniqueColors).slice(0, 12).map((color) => /* @__PURE__ */ jsx(Badge, { children: String(color) }, String(color))),
+                uniqueColors.size > 12 && /* @__PURE__ */ jsx(Badge, { tone: "info", children: `+${uniqueColors.size - 12} more` })
               ] })
-            ] })
+            ] }),
+            /* @__PURE__ */ jsx(
+              Button,
+              {
+                variant: "primary",
+                onClick: handleImportPrintify,
+                disabled: !selectedProviderId || isSubmitting || variants.length === 0,
+                loading: isSubmitting,
+                children: "Import as Product Base"
+              }
+            )
           ] })
         ] }),
-        selectedProviderId && variants.length > 0 && /* @__PURE__ */ jsxs(Fragment, { children: [
-          /* @__PURE__ */ jsx(Divider, {}),
-          /* @__PURE__ */ jsx(InlineStack, { align: "end", children: /* @__PURE__ */ jsx(
-            Button,
-            {
-              variant: "primary",
-              onClick: handleImport,
-              loading: isSubmitting,
-              disabled: isAlreadyImported,
-              children: isAlreadyImported ? "Already Imported" : `Import as Product Base`
-            }
-          ) })
+        selectedTab === 1 && /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
+          /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "Search the Printful catalog and import as a product base with all variant mappings." }),
+          /* @__PURE__ */ jsx(PrintfulSearch, { onSelect: handleSelectPFProduct }),
+          selectedPFProduct && /* @__PURE__ */ jsxs(Fragment, { children: [
+            /* @__PURE__ */ jsx(Divider, {}),
+            /* @__PURE__ */ jsxs(InlineStack, { gap: "400", blockAlign: "start", children: [
+              selectedPFProduct.image && /* @__PURE__ */ jsx(
+                "img",
+                {
+                  src: selectedPFProduct.image,
+                  alt: selectedPFProduct.title,
+                  style: { width: "100px", height: "100px", objectFit: "contain", borderRadius: "8px", border: "1px solid #eee" }
+                }
+              ),
+              /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
+                /* @__PURE__ */ jsx(Text, { as: "h2", variant: "headingLg", children: selectedPFProduct.title }),
+                /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", tone: "subdued", children: [
+                  selectedPFProduct.brand || "Printful",
+                  " · ID #",
+                  selectedPFProduct.id
+                ] }),
+                isAlreadyImportedPrintful && /* @__PURE__ */ jsx(Badge, { tone: "warning", children: "Already imported" })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsx(Select, { label: "Product Category", options: categoryOptions, value: pfCategory, onChange: setPfCategory }),
+            /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
+              /* @__PURE__ */ jsx(Text, { as: "h3", variant: "headingMd", children: "Variants" }),
+              loadingPfVariants ? /* @__PURE__ */ jsxs(InlineStack, { gap: "200", blockAlign: "center", children: [
+                /* @__PURE__ */ jsx(Spinner, { size: "small" }),
+                /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", children: "Loading variants..." })
+              ] }) : pfVariants.length > 0 ? /* @__PURE__ */ jsxs(Fragment, { children: [
+                /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", tone: "subdued", children: [
+                  pfVariants.length,
+                  " unique colors"
+                ] }),
+                /* @__PURE__ */ jsxs(InlineStack, { gap: "200", wrap: true, children: [
+                  pfVariants.slice(0, 12).map((v) => /* @__PURE__ */ jsx(Badge, { children: v.color }, v.id)),
+                  pfVariants.length > 12 && /* @__PURE__ */ jsx(Badge, { tone: "info", children: `+${pfVariants.length - 12} more` })
+                ] })
+              ] }) : /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "Select a product to see variants" })
+            ] }),
+            /* @__PURE__ */ jsx(
+              Button,
+              {
+                variant: "primary",
+                onClick: handleImportPrintful,
+                disabled: isSubmitting || pfVariants.length === 0,
+                loading: isSubmitting,
+                children: "Import as Product Base"
+              }
+            )
+          ] })
         ] })
-      ] }) }),
-      actionData && "error" in actionData && /* @__PURE__ */ jsx(Banner, { tone: "critical", children: /* @__PURE__ */ jsx("p", { children: actionData.error }) }),
-      actionData && "success" in actionData && /* @__PURE__ */ jsxs(Banner, { tone: "success", children: [
-        /* @__PURE__ */ jsx("p", { children: actionData.message }),
-        /* @__PURE__ */ jsxs("p", { children: [
-          "Go to the ",
-          /* @__PURE__ */ jsx("a", { href: "/app/mockup-manager", children: "Mockup Manager" }),
-          " to upload mockup images and set print areas."
-        ] })
-      ] })
+      ] }) }) }),
+      existingBases.length > 0 && /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
+        /* @__PURE__ */ jsxs(Text, { as: "h3", variant: "headingMd", children: [
+          "Imported Product Bases (",
+          existingBases.length,
+          ")"
+        ] }),
+        /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "Manage these in the Mockup Manager to upload mockup images and set print areas." })
+      ] }) })
     ] }) }) })
   ] });
 }
-const route20 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route21 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   action: action$2,
-  default: PrintifyImportPage,
+  default: ImportPage,
   loader: loader$3
 }, Symbol.toStringTag, { value: "Module" }));
 const loader$2 = async ({ request }) => {
@@ -4465,7 +4706,7 @@ function MockupManagerPage() {
     }, children: /* @__PURE__ */ jsx("p", { children: "Saved successfully!" }) }) })
   ] });
 }
-const route21 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route22 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   action: action$1,
   default: MockupManagerPage,
@@ -6671,7 +6912,7 @@ function ProductBasesPage() {
     )
   ] });
 }
-const route22 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route23 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   action,
   default: ProductBasesPage,
@@ -6737,7 +6978,7 @@ function Code({ children }) {
     }
   );
 }
-const route23 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route24 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: AdditionalPage
 }, Symbol.toStringTag, { value: "Module" }));
@@ -6870,12 +7111,12 @@ function Index() {
     ] }) })
   ] });
 }
-const route24 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route25 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: Index,
   loader
 }, Symbol.toStringTag, { value: "Module" }));
-const serverManifest = { "entry": { "module": "/assets/entry.client-3t2cjhbC.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js"], "css": [] }, "routes": { "root": { "id": "root", "parentId": void 0, "path": "", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/root-V13AiZHr.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js"], "css": [] }, "routes/api.register-printful-webhook": { "id": "routes/api.register-printful-webhook", "parentId": "root", "path": "api/register-printful-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.register-printful-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.register-printify-webhook": { "id": "routes/api.register-printify-webhook", "parentId": "root", "path": "api/register-printify-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.register-printify-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.app.scopes_update": { "id": "routes/webhooks.app.scopes_update", "parentId": "root", "path": "webhooks/app/scopes_update", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.app.scopes_update-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.upload-customer-image": { "id": "routes/api.upload-customer-image", "parentId": "root", "path": "api/upload-customer-image", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.upload-customer-image-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.test-printful-upload": { "id": "routes/api.test-printful-upload", "parentId": "root", "path": "api/test-printful-upload", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.test-printful-upload-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.app.uninstalled": { "id": "routes/webhooks.app.uninstalled", "parentId": "root", "path": "webhooks/app/uninstalled", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.app.uninstalled-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.orders.create": { "id": "routes/webhooks.orders.create", "parentId": "root", "path": "webhooks/orders/create", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.orders.create-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printful-webhook": { "id": "routes/api.printful-webhook", "parentId": "root", "path": "api/printful-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printful-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printify-catalog": { "id": "routes/api.printify-catalog", "parentId": "root", "path": "api/printify-catalog", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printify-catalog-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printify-webhook": { "id": "routes/api.printify-webhook", "parentId": "root", "path": "api/printify-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printify-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.debug-templates": { "id": "routes/api.debug-templates", "parentId": "root", "path": "api/debug-templates", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.debug-templates-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.print-files.$id": { "id": "routes/api.print-files.$id", "parentId": "root", "path": "api/print-files/:id", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.print-files._id-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.debug-orders": { "id": "routes/api.debug-orders", "parentId": "root", "path": "api/debug-orders", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.debug-orders-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.product-base": { "id": "routes/api.product-base", "parentId": "root", "path": "api/product-base", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.product-base-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.preview": { "id": "routes/api.preview", "parentId": "root", "path": "api/preview", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.preview-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/auth.login": { "id": "routes/auth.login", "parentId": "root", "path": "auth/login", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/route-CFLYlRyW.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/styles-gjg6xBRP.js", "/assets/components-BMsPr2Xh.js", "/assets/Page-Crj6d4sk.js", "/assets/FormLayout-OflKvwdZ.js", "/assets/context-C7JewI9A.js", "/assets/context-Eka27zlm.js"], "css": [] }, "routes/_index": { "id": "routes/_index", "parentId": "root", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/route-d0L-PsFk.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js"], "css": ["/assets/route-Xpdx9QZl.css"] }, "routes/auth.$": { "id": "routes/auth.$", "parentId": "root", "path": "auth/*", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/auth._-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/app": { "id": "routes/app", "parentId": "root", "path": "app", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": true, "module": "/assets/app-Drzl_1k1.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js", "/assets/styles-gjg6xBRP.js", "/assets/context-C7JewI9A.js", "/assets/context-Eka27zlm.js"], "css": [] }, "routes/app.printify-import": { "id": "routes/app.printify-import", "parentId": "routes/app", "path": "printify-import", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.printify-import-Dd4cvL1k.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js", "/assets/Page-Crj6d4sk.js", "/assets/TitleBar-oo-afX2C.js", "/assets/Select-Ch97iCdc.js", "/assets/Banner-DlwfWIyG.js", "/assets/context-C7JewI9A.js", "/assets/banner-context-RZ1829w2.js"], "css": [] }, "routes/app.mockup-manager": { "id": "routes/app.mockup-manager", "parentId": "routes/app", "path": "mockup-manager", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.mockup-manager-B7RCcQVN.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js", "/assets/Page-Crj6d4sk.js", "/assets/TitleBar-oo-afX2C.js", "/assets/Banner-DlwfWIyG.js", "/assets/Thumbnail-ncAVoadb.js", "/assets/EmptyState-CIZk8-5r.js", "/assets/context-C7JewI9A.js", "/assets/banner-context-RZ1829w2.js"], "css": [] }, "routes/app.product-bases": { "id": "routes/app.product-bases", "parentId": "routes/app", "path": "product-bases", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.product-bases-hNsUMWsh.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/Page-Crj6d4sk.js", "/assets/Select-Ch97iCdc.js", "/assets/IndexTable-DXXh9XAR.js", "/assets/components-BMsPr2Xh.js", "/assets/TitleBar-oo-afX2C.js", "/assets/Banner-DlwfWIyG.js", "/assets/EmptyState-CIZk8-5r.js", "/assets/Thumbnail-ncAVoadb.js", "/assets/context-C7JewI9A.js", "/assets/context-Eka27zlm.js", "/assets/FormLayout-OflKvwdZ.js", "/assets/banner-context-RZ1829w2.js"], "css": [] }, "routes/app.additional": { "id": "routes/app.additional", "parentId": "routes/app", "path": "additional", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.additional-BeG_vpA2.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/Page-Crj6d4sk.js", "/assets/TitleBar-oo-afX2C.js", "/assets/banner-context-RZ1829w2.js", "/assets/context-C7JewI9A.js"], "css": [] }, "routes/app._index": { "id": "routes/app._index", "parentId": "routes/app", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app._index-BUJbXilg.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js", "/assets/IndexTable-DXXh9XAR.js", "/assets/Page-Crj6d4sk.js", "/assets/TitleBar-oo-afX2C.js", "/assets/EmptyState-CIZk8-5r.js", "/assets/context-C7JewI9A.js"], "css": [] } }, "url": "/assets/manifest-eb579302.js", "version": "eb579302" };
+const serverManifest = { "entry": { "module": "/assets/entry.client-Cw-tlr68.js", "imports": ["/assets/index-BybyV3_0.js", "/assets/components-BYLKq_ar.js"], "css": [] }, "routes": { "root": { "id": "root", "parentId": void 0, "path": "", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/root-sAAVnnq9.js", "imports": ["/assets/index-BybyV3_0.js", "/assets/components-BYLKq_ar.js"], "css": [] }, "routes/api.register-printful-webhook": { "id": "routes/api.register-printful-webhook", "parentId": "root", "path": "api/register-printful-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.register-printful-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.register-printify-webhook": { "id": "routes/api.register-printify-webhook", "parentId": "root", "path": "api/register-printify-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.register-printify-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.app.scopes_update": { "id": "routes/webhooks.app.scopes_update", "parentId": "root", "path": "webhooks/app/scopes_update", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.app.scopes_update-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.upload-customer-image": { "id": "routes/api.upload-customer-image", "parentId": "root", "path": "api/upload-customer-image", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.upload-customer-image-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.test-printful-upload": { "id": "routes/api.test-printful-upload", "parentId": "root", "path": "api/test-printful-upload", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.test-printful-upload-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.app.uninstalled": { "id": "routes/webhooks.app.uninstalled", "parentId": "root", "path": "webhooks/app/uninstalled", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.app.uninstalled-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.orders.create": { "id": "routes/webhooks.orders.create", "parentId": "root", "path": "webhooks/orders/create", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.orders.create-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printful-catalog": { "id": "routes/api.printful-catalog", "parentId": "root", "path": "api/printful-catalog", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printful-catalog-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printful-webhook": { "id": "routes/api.printful-webhook", "parentId": "root", "path": "api/printful-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printful-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printify-catalog": { "id": "routes/api.printify-catalog", "parentId": "root", "path": "api/printify-catalog", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printify-catalog-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printify-webhook": { "id": "routes/api.printify-webhook", "parentId": "root", "path": "api/printify-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printify-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.debug-templates": { "id": "routes/api.debug-templates", "parentId": "root", "path": "api/debug-templates", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.debug-templates-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.print-files.$id": { "id": "routes/api.print-files.$id", "parentId": "root", "path": "api/print-files/:id", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.print-files._id-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.debug-orders": { "id": "routes/api.debug-orders", "parentId": "root", "path": "api/debug-orders", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.debug-orders-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.product-base": { "id": "routes/api.product-base", "parentId": "root", "path": "api/product-base", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.product-base-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.preview": { "id": "routes/api.preview", "parentId": "root", "path": "api/preview", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.preview-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/auth.login": { "id": "routes/auth.login", "parentId": "root", "path": "auth/login", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/route-C1-mhnuy.js", "imports": ["/assets/index-BybyV3_0.js", "/assets/styles-Bh9X9WdW.js", "/assets/components-BYLKq_ar.js", "/assets/Page-C11isJ4p.js", "/assets/FormLayout-wE2Mbvz1.js", "/assets/context-98-JijIU.js", "/assets/context-CCgK-ll5.js"], "css": [] }, "routes/_index": { "id": "routes/_index", "parentId": "root", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/route-CQNMIW9d.js", "imports": ["/assets/index-BybyV3_0.js", "/assets/components-BYLKq_ar.js"], "css": ["/assets/route-Xpdx9QZl.css"] }, "routes/auth.$": { "id": "routes/auth.$", "parentId": "root", "path": "auth/*", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/auth._-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/app": { "id": "routes/app", "parentId": "root", "path": "app", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": true, "module": "/assets/app-BVTy7sc4.js", "imports": ["/assets/index-BybyV3_0.js", "/assets/components-BYLKq_ar.js", "/assets/styles-Bh9X9WdW.js", "/assets/context-98-JijIU.js", "/assets/context-CCgK-ll5.js"], "css": [] }, "routes/app.printify-import": { "id": "routes/app.printify-import", "parentId": "routes/app", "path": "printify-import", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.printify-import-D6X5YzYr.js", "imports": ["/assets/index-BybyV3_0.js", "/assets/components-BYLKq_ar.js", "/assets/Page-C11isJ4p.js", "/assets/TitleBar-BBaqatVP.js", "/assets/Banner-BUyHsYi1.js", "/assets/context-98-JijIU.js", "/assets/Select-C4Wu_q_f.js", "/assets/FormLayout-wE2Mbvz1.js", "/assets/banner-context-LIMtssr9.js", "/assets/context-CCgK-ll5.js", "/assets/CSSTransition-D_MRdpMH.js"], "css": [] }, "routes/app.mockup-manager": { "id": "routes/app.mockup-manager", "parentId": "routes/app", "path": "mockup-manager", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.mockup-manager-mKDaavLJ.js", "imports": ["/assets/index-BybyV3_0.js", "/assets/components-BYLKq_ar.js", "/assets/Page-C11isJ4p.js", "/assets/TitleBar-BBaqatVP.js", "/assets/Banner-BUyHsYi1.js", "/assets/Thumbnail-CttLsWfs.js", "/assets/EmptyState-BcuxG9PT.js", "/assets/context-98-JijIU.js", "/assets/banner-context-LIMtssr9.js"], "css": [] }, "routes/app.product-bases": { "id": "routes/app.product-bases", "parentId": "routes/app", "path": "product-bases", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.product-bases-DrsoNR4n.js", "imports": ["/assets/index-BybyV3_0.js", "/assets/Page-C11isJ4p.js", "/assets/Select-C4Wu_q_f.js", "/assets/IndexTable-Cuqs_mZH.js", "/assets/components-BYLKq_ar.js", "/assets/TitleBar-BBaqatVP.js", "/assets/Banner-BUyHsYi1.js", "/assets/EmptyState-BcuxG9PT.js", "/assets/Thumbnail-CttLsWfs.js", "/assets/context-98-JijIU.js", "/assets/FormLayout-wE2Mbvz1.js", "/assets/context-CCgK-ll5.js", "/assets/CSSTransition-D_MRdpMH.js", "/assets/banner-context-LIMtssr9.js"], "css": [] }, "routes/app.additional": { "id": "routes/app.additional", "parentId": "routes/app", "path": "additional", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.additional-BbyQcJpy.js", "imports": ["/assets/index-BybyV3_0.js", "/assets/Page-C11isJ4p.js", "/assets/TitleBar-BBaqatVP.js", "/assets/banner-context-LIMtssr9.js", "/assets/context-98-JijIU.js"], "css": [] }, "routes/app._index": { "id": "routes/app._index", "parentId": "routes/app", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app._index-DPhECQGM.js", "imports": ["/assets/index-BybyV3_0.js", "/assets/components-BYLKq_ar.js", "/assets/IndexTable-Cuqs_mZH.js", "/assets/Page-C11isJ4p.js", "/assets/TitleBar-BBaqatVP.js", "/assets/EmptyState-BcuxG9PT.js", "/assets/context-98-JijIU.js", "/assets/CSSTransition-D_MRdpMH.js"], "css": [] } }, "url": "/assets/manifest-e47362cb.js", "version": "e47362cb" };
 const mode = "production";
 const assetsBuildDirectory = "build/client";
 const basename = "/";
@@ -6948,13 +7189,21 @@ const routes = {
     caseSensitive: void 0,
     module: route7
   },
+  "routes/api.printful-catalog": {
+    id: "routes/api.printful-catalog",
+    parentId: "root",
+    path: "api/printful-catalog",
+    index: void 0,
+    caseSensitive: void 0,
+    module: route8
+  },
   "routes/api.printful-webhook": {
     id: "routes/api.printful-webhook",
     parentId: "root",
     path: "api/printful-webhook",
     index: void 0,
     caseSensitive: void 0,
-    module: route8
+    module: route9
   },
   "routes/api.printify-catalog": {
     id: "routes/api.printify-catalog",
@@ -6962,7 +7211,7 @@ const routes = {
     path: "api/printify-catalog",
     index: void 0,
     caseSensitive: void 0,
-    module: route9
+    module: route10
   },
   "routes/api.printify-webhook": {
     id: "routes/api.printify-webhook",
@@ -6970,7 +7219,7 @@ const routes = {
     path: "api/printify-webhook",
     index: void 0,
     caseSensitive: void 0,
-    module: route10
+    module: route11
   },
   "routes/api.debug-templates": {
     id: "routes/api.debug-templates",
@@ -6978,7 +7227,7 @@ const routes = {
     path: "api/debug-templates",
     index: void 0,
     caseSensitive: void 0,
-    module: route11
+    module: route12
   },
   "routes/api.print-files.$id": {
     id: "routes/api.print-files.$id",
@@ -6986,7 +7235,7 @@ const routes = {
     path: "api/print-files/:id",
     index: void 0,
     caseSensitive: void 0,
-    module: route12
+    module: route13
   },
   "routes/api.debug-orders": {
     id: "routes/api.debug-orders",
@@ -6994,7 +7243,7 @@ const routes = {
     path: "api/debug-orders",
     index: void 0,
     caseSensitive: void 0,
-    module: route13
+    module: route14
   },
   "routes/api.product-base": {
     id: "routes/api.product-base",
@@ -7002,7 +7251,7 @@ const routes = {
     path: "api/product-base",
     index: void 0,
     caseSensitive: void 0,
-    module: route14
+    module: route15
   },
   "routes/api.preview": {
     id: "routes/api.preview",
@@ -7010,7 +7259,7 @@ const routes = {
     path: "api/preview",
     index: void 0,
     caseSensitive: void 0,
-    module: route15
+    module: route16
   },
   "routes/auth.login": {
     id: "routes/auth.login",
@@ -7018,7 +7267,7 @@ const routes = {
     path: "auth/login",
     index: void 0,
     caseSensitive: void 0,
-    module: route16
+    module: route17
   },
   "routes/_index": {
     id: "routes/_index",
@@ -7026,7 +7275,7 @@ const routes = {
     path: void 0,
     index: true,
     caseSensitive: void 0,
-    module: route17
+    module: route18
   },
   "routes/auth.$": {
     id: "routes/auth.$",
@@ -7034,7 +7283,7 @@ const routes = {
     path: "auth/*",
     index: void 0,
     caseSensitive: void 0,
-    module: route18
+    module: route19
   },
   "routes/app": {
     id: "routes/app",
@@ -7042,7 +7291,7 @@ const routes = {
     path: "app",
     index: void 0,
     caseSensitive: void 0,
-    module: route19
+    module: route20
   },
   "routes/app.printify-import": {
     id: "routes/app.printify-import",
@@ -7050,7 +7299,7 @@ const routes = {
     path: "printify-import",
     index: void 0,
     caseSensitive: void 0,
-    module: route20
+    module: route21
   },
   "routes/app.mockup-manager": {
     id: "routes/app.mockup-manager",
@@ -7058,7 +7307,7 @@ const routes = {
     path: "mockup-manager",
     index: void 0,
     caseSensitive: void 0,
-    module: route21
+    module: route22
   },
   "routes/app.product-bases": {
     id: "routes/app.product-bases",
@@ -7066,7 +7315,7 @@ const routes = {
     path: "product-bases",
     index: void 0,
     caseSensitive: void 0,
-    module: route22
+    module: route23
   },
   "routes/app.additional": {
     id: "routes/app.additional",
@@ -7074,7 +7323,7 @@ const routes = {
     path: "additional",
     index: void 0,
     caseSensitive: void 0,
-    module: route23
+    module: route24
   },
   "routes/app._index": {
     id: "routes/app._index",
@@ -7082,7 +7331,7 @@ const routes = {
     path: void 0,
     index: true,
     caseSensitive: void 0,
-    module: route24
+    module: route25
   }
 };
 export {
