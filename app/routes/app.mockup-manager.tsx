@@ -892,7 +892,7 @@ export default function MockupManagerPage() {
 
                   {selectedBase.variants.length === 0 ? (
                     <Banner tone="warning">
-                      <p>No variants configured. Add variants via Printify Import or manually.</p>
+                      <p>No variants configured. Add variants via Import Product Bases or manually.</p>
                     </Banner>
                   ) : (
                     <BlockStack gap="300">
@@ -1003,7 +1003,7 @@ export default function MockupManagerPage() {
                 image=""
               >
                 <p>Choose a product base from the list to manage its mockup images and print area positioning.</p>
-                <p>To add new product bases, use the <strong>Printify Import</strong> page.</p>
+                <p>To add new product bases, use the <strong>Import Product Bases</strong> page.</p>
               </EmptyState>
             </Card>
           )}

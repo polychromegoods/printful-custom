@@ -36,7 +36,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         allProducts.push(...items);
         if (items.length < limit) break;
         offset += limit;
-        if (offset > 1000) break; // safety cap
+        if (offset > 5000) break; // safety cap
       }
 
       const products = allProducts.map((p) => ({

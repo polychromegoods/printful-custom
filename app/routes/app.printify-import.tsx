@@ -97,6 +97,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             },
           ]),
           catalogImages: blueprintImages || "[]",
+          defaultMockupUrl: (() => { try { const imgs = JSON.parse(blueprintImages || "[]"); return imgs[0] || null; } catch { return null; } })(),
           description: `${blueprintBrand} ${blueprintModel} — ${blueprintTitle}. Provider: ${providerTitle} (#${providerId})`,
         },
       });
@@ -512,7 +513,7 @@ export default function ImportPage() {
 
   return (
     <Page>
-      <TitleBar title="Import Product Base" />
+      <TitleBar title="Import Product Bases" />
       <Layout>
         <Layout.Section>
           <BlockStack gap="400">

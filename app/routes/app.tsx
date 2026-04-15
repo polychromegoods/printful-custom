@@ -24,9 +24,9 @@ export default function App() {
         <Link to="/app" rel="home">
           Home
         </Link>
-        <Link to="/app/product-bases">Product Templates</Link>
+        <Link to="/app/product-bases">Personalized Product Templates</Link>
         <Link to="/app/mockup-manager">Mockup Manager</Link>
-        <Link to="/app/printify-import">Printify Import</Link>
+        <Link to="/app/printify-import">Import Product Bases</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

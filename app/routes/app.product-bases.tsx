@@ -1245,7 +1245,7 @@ export default function ProductBasesPage() {
 
   return (
     <Page>
-      <TitleBar title="Product Templates" />
+      <TitleBar title="Personalized Product Templates" />
       <Layout>
         <Layout.Section>
           {actionData && 'error' in actionData && (
@@ -1257,7 +1257,7 @@ export default function ProductBasesPage() {
           <Card>
             <BlockStack gap="400">
               <InlineStack align="space-between">
-                <Text as="h2" variant="headingMd">Product Templates</Text>
+                <Text as="h2" variant="headingMd">Personalized Product Templates</Text>
                 <InlineStack gap="200">
                   {templates.length > 0 && (
                     <Button variant="plain" tone="critical" onClick={handlePurgeAllTemplates}>
