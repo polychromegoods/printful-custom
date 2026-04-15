@@ -115,7 +115,7 @@ export default function Index() {
       </IndexTable.Cell>
       <IndexTable.Cell>
         <InlineStack gap="200" blockAlign="center">
-          {threadColorSwatch(order.threadColor)}
+          {threadColorSwatch(order.threadColor || "#000000")}
           <Text variant="bodyMd" as="span">
             {order.threadColor}
           </Text>

@@ -276,7 +276,7 @@ const ALLOWED_THREAD_COLORS = EMBROIDERY_THREAD_COLORS.map((tc) => tc.hex);
 
 function normalizeThreadColor(color: string): string {
   const upper = color.toUpperCase();
-  if (ALLOWED_THREAD_COLORS.includes(upper)) {
+  if ((ALLOWED_THREAD_COLORS as string[]).includes(upper)) {
     return upper;
   }
   console.log(

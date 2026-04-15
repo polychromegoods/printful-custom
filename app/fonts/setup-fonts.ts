@@ -15,13 +15,14 @@ if (!process.env.FONTCONFIG_PATH) {
   process.env.FONTCONFIG_PATH = fontsDir;
 }
 
-let _sharp: typeof import("sharp") | null = null;
+let _sharp: any = null;
 
 export async function getSharp() {
   if (!_sharp) {
     // Ensure env var is set before dynamic import
     process.env.FONTCONFIG_PATH = fontsDir;
-    _sharp = await import("sharp");
+    const sharpModule = await import("sharp");
+    _sharp = sharpModule.default || sharpModule;
   }
-  return _sharp.default;
+  return _sharp;
 }

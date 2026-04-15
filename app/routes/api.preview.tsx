@@ -238,7 +238,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const cacheKey = buildCacheKey(text, style, color, handle || productId, colorName, previewSize);
   const cachedPreview = previewCache.get(cacheKey);
   if (cachedPreview && format === "image") {
-    return new Response(cachedPreview.buffer, {
+    return new Response(cachedPreview.buffer as any, {
       status: 200,
       headers: {
         "Content-Type": "image/jpeg",
@@ -461,7 +461,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     );
   }
 
-  return new Response(outputBuffer, {
+  return new Response(outputBuffer as any, {
     status: 200,
     headers: {
       "Content-Type": "image/jpeg",
