@@ -662,7 +662,7 @@ export async function processPersonalizedOrder(
 
     // Submit as draft so the store owner can review before charges
     const orderResult = await printfulRequest(
-      "/orders",
+      "/orders?confirm=false",
       "POST",
       printfulOrderBody
     );

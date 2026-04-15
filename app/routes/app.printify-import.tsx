@@ -4,7 +4,7 @@
  */
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData, useSubmit, useNavigation, useActionData } from "@remix-run/react";
+import { useLoaderData, useSubmit, useNavigation, useActionData, useNavigate } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -156,6 +156,37 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const variants: Array<{ id: number; name: string; color: string; colorCode: string; size: string | null; image: string }> =
         JSON.parse(variantsJson);
 
+      // Parse print file specs if provided by frontend (fetched from /mockup-generator/printfiles)
+      const printfilesJson = formData.get("printfiles") as string;
+      let printfileSpecs: Array<{ placement: string; width: number; height: number; dpi: number }> = [];
+      try {
+        if (printfilesJson) printfileSpecs = JSON.parse(printfilesJson);
+      } catch { /* ignore parse errors */ }
+
+      // Build placements from real print file specs, or fall back to defaults
+      const placements = printfileSpecs.length > 0
+        ? printfileSpecs.map((pf) => ({
+            placementKey: pf.placement,
+            displayName: pf.placement.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()),
+            technique: "dtg",
+            maxAreaInches: { width: Math.round(pf.width / pf.dpi), height: Math.round(pf.height / pf.dpi) },
+            fileSizePx: { width: pf.width, height: pf.height },
+            dpi: pf.dpi,
+            mockupPosition: { x: 15, y: 20, width: 70, height: 65 },
+          }))
+        : [{
+            placementKey: "front",
+            displayName: "Front",
+            technique: "dtg",
+            maxAreaInches: { width: 10, height: 12 },
+            fileSizePx: { width: 3000, height: 3600 },
+            dpi: 300,
+            mockupPosition: { x: 15, y: 20, width: 70, height: 65 },
+          }];
+
+      // Use the first placement's print file size for the DB fields
+      const primaryPlacement = placements[0];
+
       const base = await db.productBaseDef.create({
         data: {
           shop: session.shop,
@@ -166,18 +197,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           category,
           fulfillmentProvider: "printful",
           printfulProductId: productId,
+          printFileWidth: primaryPlacement.fileSizePx.width,
+          printFileHeight: primaryPlacement.fileSizePx.height,
+          printFileDpi: primaryPlacement.dpi,
           techniques: JSON.stringify([{ key: "dtg", displayName: "DTG Print", isDefault: true }]),
-          placements: JSON.stringify([
-            {
-              placementKey: "front",
-              displayName: "Front",
-              technique: "dtg",
-              maxAreaInches: { width: 10, height: 12 },
-              fileSizePx: { width: 3000, height: 3600 },
-              dpi: 300,
-              mockupPosition: { x: 15, y: 20, width: 70, height: 65 },
-            },
-          ]),
+          placements: JSON.stringify(placements),
           catalogImages: productImage ? JSON.stringify([productImage]) : "[]",
           description: `${productBrand} ${productModel} — ${productTitle}. Fulfilled via Printful (#${productId})`,
           defaultMockupUrl: productImage || null,
@@ -464,19 +488,31 @@ export default function ImportPage() {
     submit(fd, { method: "post" });
   }, [selectedBlueprint, selectedProviderId, providers, variants, category, submit]);
 
+  // ── Printful state for print file specs ──
+  const [pfPrintfiles, setPfPrintfiles] = useState<any[]>([]);
+
   // ── Printful handlers ──
   const handleSelectPFProduct = useCallback(async (product: any) => {
     setSelectedPFProduct(product);
     setPfVariants([]);
+    setPfPrintfiles([]);
     setLoadingPfVariants(true);
     setPfCategory(autoCategory(product.title || ""));
     try {
-      const res = await fetch(`/api/printful-catalog?action=variants&productId=${product.id}`);
-      if (res.ok) {
-        const data = await res.json();
+      // Fetch variants and printfile specs in parallel
+      const [varRes, pfRes] = await Promise.all([
+        fetch(`/api/printful-catalog?action=variants&productId=${product.id}`),
+        fetch(`/api/printful-catalog?action=printfiles&productId=${product.id}`),
+      ]);
+      if (varRes.ok) {
+        const data = await varRes.json();
         setPfVariants(data.variants || []);
       }
-    } catch (err) { console.error("Failed to load Printful variants:", err); }
+      if (pfRes.ok) {
+        const data = await pfRes.json();
+        setPfPrintfiles(data.printfiles || []);
+      }
+    } catch (err) { console.error("Failed to load Printful data:", err); }
     setLoadingPfVariants(false);
   }, []);
 
@@ -491,8 +527,11 @@ export default function ImportPage() {
     fd.set("productImage", selectedPFProduct.image || "");
     fd.set("category", pfCategory);
     fd.set("variants", JSON.stringify(pfVariants));
+    if (pfPrintfiles.length > 0) {
+      fd.set("printfiles", JSON.stringify(pfPrintfiles));
+    }
     submit(fd, { method: "post" });
-  }, [selectedPFProduct, pfVariants, pfCategory, submit]);
+  }, [selectedPFProduct, pfVariants, pfCategory, pfPrintfiles, submit]);
 
   const isAlreadyImportedPrintify = selectedBlueprint
     ? existingBases.some((b) => b.printifyBlueprintId === selectedBlueprint.id)
@@ -521,7 +560,15 @@ export default function ImportPage() {
               <Banner tone="critical"><p>{actionData.error}</p></Banner>
             )}
             {actionData && "success" in actionData && actionData.success && (
-              <Banner tone="success"><p>{"message" in actionData ? String(actionData.message) : "Imported successfully!"}</p></Banner>
+              <Banner tone="success">
+                <BlockStack gap="200">
+                  <p>{"message" in actionData ? String(actionData.message) : "Imported successfully!"}</p>
+                  <InlineStack gap="200">
+                    <Button url="/app/mockup-manager" variant="plain">Set Up Mockup →</Button>
+                    <Button url="/app/product-bases" variant="plain">Create Template →</Button>
+                  </InlineStack>
+                </BlockStack>
+              </Banner>
             )}
 
             <Card>
@@ -653,6 +700,17 @@ export default function ImportPage() {
                             )}
                           </BlockStack>
 
+                          {pfPrintfiles.length > 0 && (
+                            <BlockStack gap="200">
+                              <Text as="h3" variant="headingMd">Print File Specs</Text>
+                              {pfPrintfiles.map((pf: any) => (
+                                <Text key={pf.placement} as="p" variant="bodySm" tone="subdued">
+                                  {pf.placement.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}: {pf.width} × {pf.height}px @ {pf.dpi}dpi
+                                </Text>
+                              ))}
+                            </BlockStack>
+                          )}
+
                           <Button
                             variant="primary"
                             onClick={handleImportPrintful}
@@ -678,6 +736,10 @@ export default function ImportPage() {
                   <Text as="p" variant="bodySm" tone="subdued">
                     Manage these in the Mockup Manager to upload mockup images and set print areas.
                   </Text>
+                  <InlineStack gap="200">
+                    <Button url="/app/mockup-manager" variant="plain">Open Mockup Manager →</Button>
+                    <Button url="/app/product-bases" variant="plain">Manage Templates →</Button>
+                  </InlineStack>
                 </BlockStack>
               </Card>
             )}

@@ -1021,10 +1021,23 @@ export default function MockupManagerPage() {
       {actionData && "success" in actionData && (
         <div style={{ marginTop: "16px" }}>
           <Banner tone="success" onDismiss={() => {}}>
-            <p>Saved successfully!</p>
+            <BlockStack gap="200">
+              <p>Saved successfully!</p>
+              <InlineStack gap="200">
+                <Button url="/app/product-bases" variant="plain">Create Template →</Button>
+              </InlineStack>
+            </BlockStack>
           </Banner>
         </div>
       )}
+
+      {/* Contextual navigation */}
+      <div style={{ marginTop: "16px" }}>
+        <InlineStack gap="300" align="end">
+          <Button url="/app/printify-import" variant="plain">← Import Product Bases</Button>
+          <Button url="/app/product-bases" variant="plain">Personalized Product Templates →</Button>
+        </InlineStack>
+      </div>
     </Page>
   );
 }

@@ -5,6 +5,7 @@
  */
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
+import { authenticate } from "../shopify.server";
 
 const PRINTFUL_TOKEN = process.env.PRINTFUL_TOKEN || "";
 const PRINTFUL_API = "https://api.printful.com";
@@ -21,6 +22,9 @@ async function pfFetch(path: string) {
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  // Require authenticated admin session
+  await authenticate.admin(request);
+
   const url = new URL(request.url);
   const action = url.searchParams.get("action");
 
@@ -78,6 +82,31 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       }
 
       return json({ variants: Array.from(colorMap.values()) });
+    }
+
+    // Fetch print file specs for a product (real dimensions from Printful)
+    if (action === "printfiles") {
+      const productId = url.searchParams.get("productId");
+      if (!productId) return json({ error: "productId required" }, { status: 400 });
+
+      const data = await pfFetch(`/mockup-generator/printfiles/${productId}`);
+      const printfiles = data.result?.printfiles || {};
+      const variantPrintfiles = data.result?.variant_printfiles || {};
+
+      // Extract the first available printfile spec to get dimensions
+      const specs: Array<{ placement: string; width: number; height: number; dpi: number }> = [];
+      for (const [placementKey, pf] of Object.entries(printfiles) as any) {
+        if (pf?.width && pf?.height) {
+          specs.push({
+            placement: placementKey,
+            width: pf.width,
+            height: pf.height,
+            dpi: pf.dpi || 300,
+          });
+        }
+      }
+
+      return json({ printfiles: specs, raw: data.result });
     }
 
     return json({ error: "Unknown action" }, { status: 400 });

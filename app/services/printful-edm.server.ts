@@ -204,9 +204,9 @@ export async function processEDMOrder(
       `[printful-edm] Submitting order: variant=${printfulVariantId}, templateId=${templateId ?? "none"}`
     );
 
-    // 4. Submit as draft
+    // 4. Submit as draft (confirm=false ensures it stays in draft for review)
     const orderResult = await printfulRequest(
-      "/orders",
+      "/orders?confirm=false",
       "POST",
       printfulOrderBody
     );

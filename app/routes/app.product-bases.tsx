@@ -1588,6 +1588,14 @@ export default function ProductBasesPage() {
           </BlockStack>
         </Modal.Section>
       </Modal>
+
+      {/* Contextual navigation */}
+      <div style={{ marginTop: "16px" }}>
+        <InlineStack gap="300" align="end">
+          <Button url="/app/mockup-manager" variant="plain">← Mockup Manager</Button>
+          <Button url="/app/printify-import" variant="plain">← Import Product Bases</Button>
+        </InlineStack>
+      </div>
     </Page>
   );
 }
