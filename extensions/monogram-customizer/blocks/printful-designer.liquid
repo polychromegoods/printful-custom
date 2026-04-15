@@ -1,0 +1,681 @@
+{% comment %}
+  Printful Embedded Designer Block
+  
+  Renders the Printful Embedded Design Maker (EDM) widget on a product page.
+  Customers can fully design a shirt (or other apparel) using Printful's
+  built-in designer, then add it to cart. The saved design template ID is
+  stored as a line item property and used to create the Printful order.
+
+  Settings:
+  - printful_product_id: The Printful catalog product ID (e.g. 71 for Bella+Canvas 3001)
+  - button_text: Text for the "Design Your Product" button
+  - designer_height: Height of the designer iframe in pixels
+  - preselected_colors: Comma-separated color names to preselect
+  - title: Section heading text
+{% endcomment %}
+
+<style>
+  .pf-designer-block {
+    margin: 16px 0;
+    font-family: 'Avenir Next', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .pf-designer-block__title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: #1a1a1a;
+  }
+  .pf-designer-block__subtitle {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+  .pf-designer-block__open-btn {
+    display: inline-block;
+    padding: 12px 24px;
+    background: #1a1a1a;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+    width: 100%;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  .pf-designer-block__open-btn:hover {
+    background: #333;
+  }
+  .pf-designer-block__open-btn:disabled {
+    background: #999;
+    cursor: not-allowed;
+  }
+  .pf-designer-block__modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.7);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+  }
+  .pf-designer-block__modal-overlay.is-open {
+    display: flex;
+  }
+  .pf-designer-block__modal {
+    background: #fff;
+    border-radius: 12px;
+    width: 95vw;
+    max-width: 1200px;
+    height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  }
+  .pf-designer-block__modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #e5e5e5;
+    flex-shrink: 0;
+  }
+  .pf-designer-block__modal-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1a1a1a;
+  }
+  .pf-designer-block__modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    line-height: 1;
+    padding: 4px 8px;
+  }
+  .pf-designer-block__modal-close:hover {
+    color: #1a1a1a;
+  }
+  .pf-designer-block__designer-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  #pf-edm-container {
+    width: 100%;
+    height: 100%;
+  }
+  #pf-edm-container iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+  .pf-designer-block__modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-top: 1px solid #e5e5e5;
+    flex-shrink: 0;
+    gap: 12px;
+  }
+  .pf-designer-block__save-btn {
+    padding: 12px 32px;
+    background: #1a1a1a;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .pf-designer-block__save-btn:hover {
+    background: #333;
+  }
+  .pf-designer-block__save-btn:disabled {
+    background: #999;
+    cursor: not-allowed;
+  }
+  .pf-designer-block__status {
+    font-size: 13px;
+    color: #666;
+    flex: 1;
+  }
+  .pf-designer-block__status.is-success {
+    color: #2a7a2a;
+    font-weight: 600;
+  }
+  .pf-designer-block__status.is-error {
+    color: #c0392b;
+  }
+  .pf-designer-block__saved-preview {
+    display: none;
+    padding: 12px 16px;
+    background: #f0f9f0;
+    border: 1px solid #a8d5a8;
+    border-radius: 8px;
+    margin-bottom: 12px;
+  }
+  .pf-designer-block__saved-preview.is-visible {
+    display: block;
+  }
+  .pf-designer-block__saved-preview-text {
+    font-size: 13px;
+    color: #2a7a2a;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .pf-designer-block__saved-preview-sub {
+    font-size: 12px;
+    color: #555;
+  }
+  .pf-designer-block__edit-btn {
+    display: inline-block;
+    padding: 8px 16px;
+    background: transparent;
+    color: #1a1a1a;
+    border: 1px solid #1a1a1a;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: all 0.2s;
+  }
+  .pf-designer-block__edit-btn:hover {
+    background: #1a1a1a;
+    color: #fff;
+  }
+  .pf-designer-block__loading-overlay {
+    display: none;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255,255,255,0.9);
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 10;
+  }
+  .pf-designer-block__loading-overlay.is-visible {
+    display: flex;
+  }
+  .pf-designer-block__spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e5e5e5;
+    border-top-color: #1a1a1a;
+    border-radius: 50%;
+    animation: pf-spin 0.8s linear infinite;
+  }
+  @keyframes pf-spin {
+    to { transform: rotate(360deg); }
+  }
+  .pf-designer-block__loading-text {
+    font-size: 14px;
+    color: #666;
+  }
+  @media (max-width: 600px) {
+    .pf-designer-block__modal {
+      width: 100vw;
+      height: 100vh;
+      border-radius: 0;
+    }
+  }
+</style>
+
+<div class="pf-designer-block" id="pf-designer-block-{{ block.id }}">
+  {% if block.settings.title != blank %}
+    <div class="pf-designer-block__title">{{ block.settings.title }}</div>
+  {% endif %}
+  {% if block.settings.subtitle != blank %}
+    <div class="pf-designer-block__subtitle">{{ block.settings.subtitle }}</div>
+  {% endif %}
+
+  <!-- Saved design confirmation (shown after design is saved) -->
+  <div class="pf-designer-block__saved-preview" id="pf-saved-preview-{{ block.id }}">
+    <div class="pf-designer-block__saved-preview-text">✓ Your design has been saved!</div>
+    <div class="pf-designer-block__saved-preview-sub">Your custom design will be printed and shipped to you.</div>
+    <button class="pf-designer-block__edit-btn" id="pf-edit-btn-{{ block.id }}">
+      Edit Design
+    </button>
+  </div>
+
+  <!-- Open Designer Button -->
+  <button
+    class="pf-designer-block__open-btn"
+    id="pf-open-btn-{{ block.id }}"
+  >
+    {{ block.settings.button_text | default: 'Design Your Product' }}
+  </button>
+</div>
+
+<!-- Designer Modal -->
+<div class="pf-designer-block__modal-overlay" id="pf-modal-{{ block.id }}">
+  <div class="pf-designer-block__modal">
+    <div class="pf-designer-block__modal-header">
+      <div class="pf-designer-block__modal-title">Design Your Product</div>
+      <button class="pf-designer-block__modal-close" id="pf-close-btn-{{ block.id }}" aria-label="Close designer">×</button>
+    </div>
+    <div class="pf-designer-block__designer-container">
+      <!-- Loading overlay while iframe initializes -->
+      <div class="pf-designer-block__loading-overlay is-visible" id="pf-loading-{{ block.id }}">
+        <div class="pf-designer-block__spinner"></div>
+        <div class="pf-designer-block__loading-text">Loading designer...</div>
+      </div>
+      <div id="pf-edm-container-{{ block.id }}"></div>
+    </div>
+    <div class="pf-designer-block__modal-footer">
+      <div class="pf-designer-block__status" id="pf-status-{{ block.id }}">
+        Design your product above, then click Save Design.
+      </div>
+      <button class="pf-designer-block__save-btn" id="pf-save-btn-{{ block.id }}" disabled>
+        Save Design &amp; Add to Cart
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Printful EDM JS -->
+<script src="https://files.cdn.printful.com/embed/embed.js" defer></script>
+
+<script>
+(function() {
+  'use strict';
+
+  var BLOCK_ID = '{{ block.id }}';
+  var PRINTFUL_PRODUCT_ID = {{ block.settings.printful_product_id | default: 71 }};
+  var APP_URL = '{{ shop.metafields.polychrome.app_url | default: "https://printful-custom-production.up.railway.app" }}';
+  var NONCE_ENDPOINT = APP_URL + '/api/printful-nonce';
+
+  // Generate a stable external product ID based on product + customer session
+  // This allows the same customer to edit their design if they reopen the modal
+  var EXTERNAL_PRODUCT_ID = 'shopify-{{ product.id }}-' + getSessionId();
+
+  var designMaker = null;
+  var savedTemplateId = null;
+  var isDesignSaved = false;
+  var isDesignValid = false;
+
+  function getSessionId() {
+    try {
+      var key = 'pf_session_' + '{{ product.id }}';
+      var existing = sessionStorage.getItem(key);
+      if (existing) return existing;
+      var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      sessionStorage.setItem(key, id);
+      return id;
+    } catch(e) {
+      return Date.now().toString(36);
+    }
+  }
+
+  function el(id) {
+    return document.getElementById(id);
+  }
+
+  function setStatus(msg, type) {
+    var statusEl = el('pf-status-' + BLOCK_ID);
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.className = 'pf-designer-block__status' + (type ? ' is-' + type : '');
+  }
+
+  function showLoading(show) {
+    var loadingEl = el('pf-loading-' + BLOCK_ID);
+    if (!loadingEl) return;
+    if (show) {
+      loadingEl.classList.add('is-visible');
+    } else {
+      loadingEl.classList.remove('is-visible');
+    }
+  }
+
+  function openModal() {
+    var modal = el('pf-modal-' + BLOCK_ID);
+    if (modal) modal.classList.add('is-open');
+    document.body.style.overflow = 'hidden';
+    initDesigner();
+  }
+
+  function closeModal() {
+    var modal = el('pf-modal-' + BLOCK_ID);
+    if (modal) modal.classList.remove('is-open');
+    document.body.style.overflow = '';
+  }
+
+  async function fetchNonce() {
+    try {
+      var resp = await fetch(NONCE_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          externalProductId: EXTERNAL_PRODUCT_ID,
+          userAgent: navigator.userAgent
+        })
+      });
+
+      if (!resp.ok) {
+        var errData = await resp.json().catch(function() { return {}; });
+        throw new Error(errData.error || 'Failed to get nonce (HTTP ' + resp.status + ')');
+      }
+
+      var data = await resp.json();
+      return data; // { nonce, templateId, expiresAt }
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  async function initDesigner() {
+    showLoading(true);
+    setStatus('Initializing designer...', '');
+
+    var saveBtn = el('pf-save-btn-' + BLOCK_ID);
+    if (saveBtn) saveBtn.disabled = true;
+
+    try {
+      // Wait for PFDesignMaker to be available
+      var attempts = 0;
+      while (typeof PFDesignMaker === 'undefined' && attempts < 30) {
+        await new Promise(function(r) { setTimeout(r, 200); });
+        attempts++;
+      }
+
+      if (typeof PFDesignMaker === 'undefined') {
+        throw new Error('Printful designer script failed to load. Please refresh and try again.');
+      }
+
+      // Destroy previous instance if any
+      if (designMaker) {
+        try { designMaker = null; } catch(e) {}
+        var container = el('pf-edm-container-' + BLOCK_ID);
+        if (container) container.innerHTML = '';
+      }
+
+      // Get nonce from server
+      var nonceData = await fetchNonce();
+      var nonce = nonceData.nonce;
+      var existingTemplateId = nonceData.templateId; // null if new design
+
+      console.log('[pf-edm] Nonce received. templateId=' + existingTemplateId);
+
+      // Build EDM config
+      var edmConfig = {
+        elemId: 'pf-edm-container-' + BLOCK_ID,
+        nonce: nonce,
+        externalProductId: EXTERNAL_PRODUCT_ID,
+
+        onIframeLoaded: function() {
+          showLoading(false);
+          setStatus('Design your product, then click Save Design & Add to Cart.', '');
+          console.log('[pf-edm] iframe loaded');
+        },
+
+        onTemplateSaved: function(templateId) {
+          console.log('[pf-edm] Template saved! templateId=' + templateId);
+          savedTemplateId = templateId;
+          isDesignSaved = true;
+
+          // Show saved confirmation
+          var savedPreview = el('pf-saved-preview-' + BLOCK_ID);
+          if (savedPreview) savedPreview.classList.add('is-visible');
+
+          setStatus('✓ Design saved! Adding to cart...', 'success');
+
+          // Auto-add to cart after save
+          addToCart(templateId);
+        },
+
+        onDesignStatusUpdate: function(status) {
+          isDesignValid = status.designValid;
+          var saveBtn = el('pf-save-btn-' + BLOCK_ID);
+          if (saveBtn) {
+            saveBtn.disabled = !isDesignValid;
+          }
+          if (status.designChange) {
+            setStatus('Design has unsaved changes. Click Save Design & Add to Cart when ready.', '');
+          }
+        },
+
+        onError: function(err) {
+          console.error('[pf-edm] Error:', err);
+          setStatus('Designer error: ' + (err.message || err), 'error');
+          showLoading(false);
+        },
+
+        featureConfig: {
+          file_layers: true,
+          text_layers: true,
+          clipart_layers: true,
+        },
+      };
+
+      // If editing existing design, don't pass initProduct
+      if (!existingTemplateId) {
+        edmConfig.initProduct = {
+          productId: PRINTFUL_PRODUCT_ID,
+        };
+
+        // Apply preselected colors if configured
+        {% if block.settings.preselected_colors != blank %}
+        edmConfig.preselectedColors = '{{ block.settings.preselected_colors }}'.split(',').map(function(c) { return c.trim(); });
+        {% endif %}
+      }
+
+      designMaker = new PFDesignMaker(edmConfig);
+
+      // Enable save button once loaded (also enabled by onDesignStatusUpdate)
+      setTimeout(function() {
+        var saveBtn = el('pf-save-btn-' + BLOCK_ID);
+        if (saveBtn && saveBtn.disabled) {
+          saveBtn.disabled = false;
+        }
+      }, 3000);
+
+    } catch (err) {
+      console.error('[pf-edm] Init error:', err);
+      setStatus('Error: ' + err.message, 'error');
+      showLoading(false);
+    }
+  }
+
+  async function addToCart(templateId) {
+    var saveBtn = el('pf-save-btn-' + BLOCK_ID);
+    if (saveBtn) saveBtn.disabled = true;
+
+    try {
+      // Get the currently selected variant
+      var variantId = getSelectedVariantId();
+      var variantTitle = getSelectedVariantTitle();
+
+      if (!variantId) {
+        setStatus('Please select a size/color before adding to cart.', 'error');
+        if (saveBtn) saveBtn.disabled = false;
+        return;
+      }
+
+      var properties = {
+        '_printful_template_id': String(templateId),
+        '_printful_external_product_id': EXTERNAL_PRODUCT_ID,
+        '_printful_product_id': String(PRINTFUL_PRODUCT_ID),
+        'Design': 'Custom design (Printful EDM)',
+      };
+
+      var cartPayload = {
+        id: variantId,
+        quantity: 1,
+        properties: properties,
+      };
+
+      var resp = await fetch('/cart/add.js', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cartPayload),
+      });
+
+      if (!resp.ok) {
+        var errData = await resp.json().catch(function() { return {}; });
+        throw new Error(errData.description || errData.message || 'Failed to add to cart');
+      }
+
+      setStatus('✓ Added to cart! Redirecting...', 'success');
+
+      // Close modal and redirect to cart
+      setTimeout(function() {
+        closeModal();
+        window.location.href = '/cart';
+      }, 1000);
+
+    } catch (err) {
+      console.error('[pf-edm] Add to cart error:', err);
+      setStatus('Error adding to cart: ' + err.message, 'error');
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  function getSelectedVariantId() {
+    // Try standard Shopify variant selector patterns
+    var selectors = [
+      'input[name="id"]:checked',
+      'select[name="id"]',
+      'input[name="id"]',
+      '[data-productid] input[name="id"]',
+    ];
+
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i]);
+      if (el && el.value) return el.value;
+    }
+
+    // Try Shopify's global product form
+    var form = document.querySelector('form[action="/cart/add"]');
+    if (form) {
+      var idInput = form.querySelector('input[name="id"], select[name="id"]');
+      if (idInput && idInput.value) return idInput.value;
+    }
+
+    return null;
+  }
+
+  function getSelectedVariantTitle() {
+    // Try to get the variant title from the page
+    var variantTitleEl = document.querySelector('.product__variant-title, .variant-title, [data-variant-title]');
+    if (variantTitleEl) return variantTitleEl.textContent.trim();
+
+    // Try option selectors
+    var options = [];
+    document.querySelectorAll('.product-form__option select, .single-option-selector').forEach(function(sel) {
+      if (sel.value) options.push(sel.value);
+    });
+    if (options.length > 0) return options.join(' / ');
+
+    return '';
+  }
+
+  // ─── Event Listeners ───────────────────────────────────────────────────────
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var openBtn = el('pf-open-btn-' + BLOCK_ID);
+    var closeBtn = el('pf-close-btn-' + BLOCK_ID);
+    var saveBtn = el('pf-save-btn-' + BLOCK_ID);
+    var editBtn = el('pf-edit-btn-' + BLOCK_ID);
+    var modal = el('pf-modal-' + BLOCK_ID);
+
+    if (openBtn) {
+      openBtn.addEventListener('click', function() {
+        openModal();
+      });
+    }
+
+    if (closeBtn) {
+      closeBtn.addEventListener('click', function() {
+        closeModal();
+      });
+    }
+
+    if (saveBtn) {
+      saveBtn.addEventListener('click', function() {
+        if (!designMaker) return;
+        setStatus('Saving design...', '');
+        saveBtn.disabled = true;
+        // Trigger save in the EDM
+        designMaker.sendMessage({ event: 'saveDesign' });
+      });
+    }
+
+    if (editBtn) {
+      editBtn.addEventListener('click', function() {
+        openModal();
+      });
+    }
+
+    // Close modal on overlay click
+    if (modal) {
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+          closeModal();
+        }
+      });
+    }
+
+    // Close on Escape key
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        closeModal();
+      }
+    });
+  });
+
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Printful Designer",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Section title",
+      "default": "Design Your Own"
+    },
+    {
+      "type": "text",
+      "id": "subtitle",
+      "label": "Subtitle / description",
+      "default": "Use our design tool to create a fully custom product. Upload your own images, add text, and more."
+    },
+    {
+      "type": "text",
+      "id": "button_text",
+      "label": "Open designer button text",
+      "default": "Design Your Product"
+    },
+    {
+      "type": "number",
+      "id": "printful_product_id",
+      "label": "Printful Product ID",
+      "info": "The Printful catalog product ID. Find it in the Printful catalog URL or import page. E.g. 71 = Bella+Canvas 3001 Unisex T-Shirt",
+      "default": 71
+    },
+    {
+      "type": "text",
+      "id": "preselected_colors",
+      "label": "Preselected colors (comma-separated)",
+      "info": "Optional. E.g. 'White, Black, Navy Blue'",
+      "default": ""
+    }
+  ]
+}
+{% endschema %}

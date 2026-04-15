@@ -3,6 +3,7 @@ import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { processPersonalizedOrder } from "../services/printful.server";
 import { processPersonalizedOrderPrintify } from "../services/printify.server";
+import { processEDMOrder } from "../services/printful-edm.server";
 import { getProductBase } from "../config/product-bases";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -23,6 +24,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
     }
 
+    // ─── Printful Embedded Designer (EDM) flow ───
+    const printfulTemplateId = properties["_printful_template_id"];
+    const printfulExternalProductId = properties["_printful_external_product_id"];
+    const printfulProductId = properties["_printful_product_id"];
+
     // ─── New template-based personalization ───
     const personalizationData = properties["_personalization_data"];
     const templateId = properties["_template_id"];
@@ -38,14 +44,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // ─── Image upload field (for tote bags / DTG products) ───
     const uploadedImageUrl = properties["_uploaded_image_url"];
 
-    // Skip if no personalization data exists (neither template data, legacy monogram, nor uploaded image)
-    if (!personalizationData && !monogramText && !uploadedImageUrl) {
+    // Skip if no personalization data exists
+    if (
+      !printfulTemplateId &&
+      !printfulExternalProductId &&
+      !personalizationData &&
+      !monogramText &&
+      !uploadedImageUrl
+    ) {
       continue; // Not a personalized item
     }
+
+    const variantTitle = lineItem.variant_title || "";
 
     const variantId = String(lineItem.variant_id);
 
     console.log(`[webhook] Found personalized item in order ${orderName}:`);
+    if (printfulTemplateId) {
+      console.log(`  EDM Template: ${printfulTemplateId}`);
+    }
+    if (printfulExternalProductId) {
+      console.log(`  EDM External Product: ${printfulExternalProductId}`);
+    }
     if (templateId) {
       console.log(`  Template: ${templateId}, Base: ${productBaseSlug}, Technique: ${technique}, Placement: ${placementKey}`);
     }
@@ -58,7 +78,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     // Determine fulfillment provider based on product base
     let fulfillmentProvider = "printful"; // default
-    if (productBaseSlug) {
+
+    // EDM orders always go to Printful
+    if (printfulTemplateId || printfulExternalProductId) {
+      fulfillmentProvider = "printful";
+    } else if (productBaseSlug) {
       const base = getProductBase(productBaseSlug);
       if (base) {
         fulfillmentProvider = base.fulfillmentProvider;
@@ -101,7 +125,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         productBaseSlug: productBaseSlug || null,
         technique: technique || null,
         placementKey: placementKey || null,
-        personalizationData: personalizationData || "{}",
+        // For EDM orders, embed template info in personalizationData
+        personalizationData: (printfulTemplateId || printfulExternalProductId)
+          ? JSON.stringify({
+              printfulTemplateId: printfulTemplateId || undefined,
+              printfulExternalProductId: printfulExternalProductId || undefined,
+              printfulProductId: printfulProductId || undefined,
+              variantTitle,
+            })
+          : (personalizationData || "{}"),
 
         // Legacy fields (always populated for backward compat)
         monogramText: monogramText || null,
@@ -117,8 +149,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`[webhook] Created PersonalizationOrder ${record.id} for order ${orderName} (provider: ${fulfillmentProvider})`);
 
-    // Route to the correct fulfillment provider
-    if (fulfillmentProvider === "printify") {
+    // Route to the correct fulfillment handler
+    if (printfulTemplateId || printfulExternalProductId) {
+      // EDM flow — no print file generation needed
+      processEDMOrder(record.id, order).catch((err) => {
+        console.error(`[webhook] Error processing EDM order ${record.id}:`, err);
+      });
+    } else if (fulfillmentProvider === "printify") {
       processPersonalizedOrderPrintify(record.id, order).catch((err) => {
         console.error(`[webhook] Error processing Printify order ${record.id}:`, err);
       });
