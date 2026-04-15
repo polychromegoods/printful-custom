@@ -9,14 +9,15 @@ import "@shopify/shopify-app-remix/adapters/node";
 import { shopifyApp, AppDistribution, ApiVersion, LoginErrorType, boundary } from "@shopify/shopify-app-remix/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import { PrismaClient } from "@prisma/client";
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { registerFont, createCanvas, loadImage } from "canvas";
 import os from "os";
-import { useState, useRef, useEffect, useCallback } from "react";
-import { AppProvider, Page, Card, FormLayout, Text, TextField, Button, BlockStack, InlineStack, Select, Checkbox, Divider, Layout, Banner, EmptyState, IndexTable, Badge, Box, Thumbnail, Modal, DropZone, ChoiceList, Link as Link$1, List, Tooltip } from "@shopify/polaris";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { AppProvider, Page, Card, FormLayout, Text, TextField, Button, Layout, BlockStack, InlineStack, Badge, Divider, Select, Spinner, Banner, Thumbnail, EmptyState, Checkbox, IndexTable, Box, Modal, DropZone, ChoiceList, Link as Link$1, List, Tooltip } from "@shopify/polaris";
 import { AppProvider as AppProvider$1 } from "@shopify/shopify-app-remix/react";
-import { NavMenu, useAppBridge, TitleBar } from "@shopify/app-bridge-react";
+import { NavMenu, TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 if (process.env.NODE_ENV !== "production") {
   if (!global.prismaGlobal) {
     global.prismaGlobal = new PrismaClient();
@@ -31,7 +32,7 @@ const shopify = shopifyApp({
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
-  distribution: AppDistribution.Custom,
+  distribution: AppDistribution.AppStore,
   future: {
     unstable_newEmbeddedAuthStrategy: true,
     expiringOfflineAccessTokens: true
@@ -119,7 +120,7 @@ const route0 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProper
 const PRINTFUL_TOKEN$2 = process.env.PRINTFUL_TOKEN || "";
 const PRINTFUL_API$1 = "https://api.printful.com";
 const APP_URL$1 = process.env.SHOPIFY_APP_URL || process.env.APP_URL || "https://printful-custom-production.up.railway.app";
-const loader$d = async ({ request }) => {
+const loader$h = async ({ request }) => {
   try {
     const response = await fetch(`${PRINTFUL_API$1}/webhooks`, {
       headers: {
@@ -137,7 +138,7 @@ const loader$d = async ({ request }) => {
     return json({ status: "error", message: error.message }, { status: 500 });
   }
 };
-const action$8 = async ({ request }) => {
+const action$b = async ({ request }) => {
   var _a2, _b, _c;
   const webhookUrl = `${APP_URL$1}/api/printful-webhook`;
   console.log(`[printful-webhook-setup] Registering webhook: ${webhookUrl}`);
@@ -201,13 +202,13 @@ const action$8 = async ({ request }) => {
 };
 const route1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  action: action$8,
-  loader: loader$d
+  action: action$b,
+  loader: loader$h
 }, Symbol.toStringTag, { value: "Module" }));
-const PRINTIFY_TOKEN$1 = process.env.PRINTIFY_TOKEN || "";
+const PRINTIFY_TOKEN$2 = process.env.PRINTIFY_TOKEN || "";
 const PRINTIFY_SHOP_ID$1 = process.env.PRINTIFY_SHOP_ID || "12491740";
-const PRINTIFY_API$1 = "https://api.printify.com/v1";
-const action$7 = async ({ request }) => {
+const PRINTIFY_API$2 = "https://api.printify.com/v1";
+const action$a = async ({ request }) => {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
   }
@@ -216,10 +217,10 @@ const action$7 = async ({ request }) => {
   console.log(`[printify-register] Registering webhook: ${webhookUrl}`);
   try {
     const listRes = await fetch(
-      `${PRINTIFY_API$1}/shops/${PRINTIFY_SHOP_ID$1}/webhooks.json`,
+      `${PRINTIFY_API$2}/shops/${PRINTIFY_SHOP_ID$1}/webhooks.json`,
       {
         headers: {
-          Authorization: `Bearer ${PRINTIFY_TOKEN$1}`,
+          Authorization: `Bearer ${PRINTIFY_TOKEN$2}`,
           "Content-Type": "application/json"
         }
       }
@@ -237,11 +238,11 @@ const action$7 = async ({ request }) => {
     const results = [];
     for (const topic of topics) {
       const res = await fetch(
-        `${PRINTIFY_API$1}/shops/${PRINTIFY_SHOP_ID$1}/webhooks.json`,
+        `${PRINTIFY_API$2}/shops/${PRINTIFY_SHOP_ID$1}/webhooks.json`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${PRINTIFY_TOKEN$1}`,
+            Authorization: `Bearer ${PRINTIFY_TOKEN$2}`,
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
@@ -268,13 +269,13 @@ const action$7 = async ({ request }) => {
     );
   }
 };
-const loader$c = async () => {
+const loader$g = async () => {
   try {
     const res = await fetch(
-      `${PRINTIFY_API$1}/shops/${PRINTIFY_SHOP_ID$1}/webhooks.json`,
+      `${PRINTIFY_API$2}/shops/${PRINTIFY_SHOP_ID$1}/webhooks.json`,
       {
         headers: {
-          Authorization: `Bearer ${PRINTIFY_TOKEN$1}`,
+          Authorization: `Bearer ${PRINTIFY_TOKEN$2}`,
           "Content-Type": "application/json"
         }
       }
@@ -293,10 +294,10 @@ const loader$c = async () => {
 };
 const route2 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  action: action$7,
-  loader: loader$c
+  action: action$a,
+  loader: loader$g
 }, Symbol.toStringTag, { value: "Module" }));
-const action$6 = async ({ request }) => {
+const action$9 = async ({ request }) => {
   const { payload, session, topic, shop } = await authenticate.webhook(request);
   console.log(`Received ${topic} webhook for ${shop}`);
   const current = payload.current;
@@ -314,11 +315,113 @@ const action$6 = async ({ request }) => {
 };
 const route3 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  action: action$6
+  action: action$9
+}, Symbol.toStringTag, { value: "Module" }));
+const MAX_BASE64_LENGTH = 15 * 1024 * 1024;
+const action$8 = async ({ request }) => {
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type"
+  };
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+  if (request.method !== "POST") {
+    return new Response(
+      JSON.stringify({ success: false, error: "Method not allowed" }),
+      { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+  try {
+    const body = await request.json();
+    const imageDataUrl = body.image;
+    if (!imageDataUrl || typeof imageDataUrl !== "string") {
+      return new Response(
+        JSON.stringify({ success: false, error: "Missing 'image' field (base64 dataURL)" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const dataUrlMatch = imageDataUrl.match(/^data:(image\/(png|jpeg|jpg|webp));base64,(.+)$/);
+    if (!dataUrlMatch) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid image format. Must be a base64 data URL (PNG, JPEG, or WebP)" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const mimeType = dataUrlMatch[1];
+    const base64Data = dataUrlMatch[3];
+    if (base64Data.length > MAX_BASE64_LENGTH) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Image too large. Maximum size is ~11MB" }),
+        { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const uniqueId = crypto.randomBytes(8).toString("hex");
+    const ext = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
+    const filename = `cust-${uniqueId}.${ext}`;
+    console.log(`[upload-customer-image] Storing customer image: ${filename} (${mimeType}, ${Math.round(base64Data.length / 1024)}KB base64)`);
+    await prisma.printFile.create({
+      data: {
+        filename,
+        mimeType,
+        data: base64Data,
+        orderId: null
+        // Will be linked to an order later when the order is placed
+      }
+    });
+    const appUrl = process.env.SHOPIFY_APP_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null) || "https://printful-custom-production.up.railway.app";
+    const publicUrl = `${appUrl}/api/print-files/${filename}`;
+    console.log(`[upload-customer-image] ✓ Stored as ${filename}, URL: ${publicUrl}`);
+    return new Response(
+      JSON.stringify({
+        success: true,
+        url: publicUrl,
+        fileId: filename
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      }
+    );
+  } catch (error) {
+    console.error(`[upload-customer-image] Error:`, error.message);
+    return new Response(
+      JSON.stringify({ success: false, error: "Internal server error" }),
+      { status: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+    );
+  }
+};
+const loader$f = async ({ request }) => {
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+      }
+    });
+  }
+  return new Response(
+    JSON.stringify({ error: "Use POST to upload images" }),
+    {
+      status: 405,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      }
+    }
+  );
+};
+const route4 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  action: action$8,
+  loader: loader$f
 }, Symbol.toStringTag, { value: "Module" }));
 const PRINTFUL_TOKEN$1 = process.env.PRINTFUL_TOKEN || "";
 const APP_URL = process.env.SHOPIFY_APP_URL || process.env.APP_URL || "https://printful-custom-production.up.railway.app";
-const loader$b = async ({ request }) => {
+const loader$e = async ({ request }) => {
   const url = new URL(request.url);
   const fileUrl = url.searchParams.get("url") || `${APP_URL}/api/print-files/pf-1776194486126-r6wa7gjlbb.png`;
   console.log(`[test-upload] Testing Printful file upload with URL: ${fileUrl}`);
@@ -356,11 +459,11 @@ const loader$b = async ({ request }) => {
     }, { status: 500 });
   }
 };
-const route4 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route5 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  loader: loader$b
+  loader: loader$e
 }, Symbol.toStringTag, { value: "Module" }));
-const action$5 = async ({ request }) => {
+const action$7 = async ({ request }) => {
   const { shop, session, topic } = await authenticate.webhook(request);
   console.log(`Received ${topic} webhook for ${shop}`);
   if (session) {
@@ -368,9 +471,9 @@ const action$5 = async ({ request }) => {
   }
   return new Response();
 };
-const route5 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route6 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  action: action$5
+  action: action$7
 }, Symbol.toStringTag, { value: "Module" }));
 const EMBROIDERY_THREAD_COLORS = [
   { hex: "#FFFFFF", name: "White", madeira: "1801" },
@@ -682,6 +785,50 @@ const PRODUCT_BASES = [
         position: { x: 10, y: 20, width: 80, height: 60 }
       }
     ]
+  },
+  {
+    slug: "11oz-mug",
+    fulfillmentProvider: "printify",
+    printfulProductId: 0,
+    printifyBlueprintId: 68,
+    printifyProviderId: 45,
+    name: "11oz White Ceramic Mug",
+    brand: "Generic",
+    model: "11oz Mug",
+    category: "accessory",
+    defaultMockupUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/HOQjPHCMIuLCChxT.webp",
+    variantMockups: {
+      White: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663309529079/HOQjPHCMIuLCChxT.webp"
+    },
+    techniques: [
+      { key: "dtg", displayName: "Sublimation", isDefault: true }
+    ],
+    placements: [
+      {
+        placementKey: "front",
+        displayName: "Front",
+        technique: "dtg",
+        maxAreaInches: { width: 3.5, height: 3.5 },
+        fileSizePx: { width: 1050, height: 1050 },
+        dpi: 300,
+        mockupPosition: { x: 38, y: 28, width: 38, height: 45 }
+      }
+    ],
+    variants: [
+      { printfulVariantId: 0, printifyVariantId: 43071, color: "White", colorHex: "#ffffff" }
+    ],
+    defaultLayers: [
+      {
+        key: "mad_lib_text",
+        type: "text",
+        label: "Mad Lib Message",
+        customerEditable: true,
+        maxChars: 500,
+        fonts: AVAILABLE_FONTS,
+        colorSource: "custom",
+        position: { x: 5, y: 5, width: 90, height: 90 }
+      }
+    ]
   }
 ];
 function getProductBase(slug) {
@@ -813,10 +960,21 @@ function drawTextLayer(ctx, layer, canvasWidth, canvasHeight) {
       centerY + bigSize * 0.05
     );
   } else {
-    const fontSize = isScript ? Math.min(w * 0.5, h * 0.7) : Math.min(w * 0.4, h * 0.6);
+    const lines = value.split("\n");
+    let fontSize = isScript ? Math.min(w * 0.5, h * 0.7) : Math.min(w * 0.4, h * 0.6);
+    if (lines.length > 3) fontSize = fontSize * (3 / lines.length);
     const weight = isScript ? "" : "bold ";
     ctx.font = `${weight}${Math.round(fontSize)}px ${fontFamily}`;
-    ctx.fillText(value, centerX, centerY);
+    if (lines.length === 1) {
+      ctx.fillText(value, centerX, centerY);
+    } else {
+      const lineHeight = fontSize * 1.2;
+      const totalHeight = lines.length * lineHeight;
+      const startY = centerY - totalHeight / 2 + lineHeight / 2;
+      lines.forEach((line, i) => {
+        ctx.fillText(line, centerX, startY + i * lineHeight);
+      });
+    }
   }
 }
 async function generatePrintFileAsync(options) {
@@ -1210,7 +1368,7 @@ async function processPersonalizedOrder(recordId, shopifyOrder) {
       const layers = (persData.layers || []).map((l) => ({
         key: l.key || "text",
         type: l.type || "text",
-        value: (l.text || l.value || "").toUpperCase().replace(/[^A-Z0-9 ]/g, ""),
+        value: l.text || l.value || "",
         font: l.font || "block",
         color: l.color || "#000000",
         position: l.position || { x: 10, y: 10, width: 80, height: 80 }
@@ -1396,15 +1554,15 @@ async function processPersonalizedOrder(recordId, shopifyOrder) {
     });
   }
 }
-const PRINTIFY_TOKEN = process.env.PRINTIFY_TOKEN || "";
+const PRINTIFY_TOKEN$1 = process.env.PRINTIFY_TOKEN || "";
 const PRINTIFY_SHOP_ID = process.env.PRINTIFY_SHOP_ID || "12491740";
-const PRINTIFY_API = "https://api.printify.com/v1";
+const PRINTIFY_API$1 = "https://api.printify.com/v1";
 async function printifyRequest(endpoint, method = "GET", body) {
-  const url = `${PRINTIFY_API}${endpoint}`;
+  const url = `${PRINTIFY_API$1}${endpoint}`;
   const options = {
     method,
     headers: {
-      Authorization: `Bearer ${PRINTIFY_TOKEN}`,
+      Authorization: `Bearer ${PRINTIFY_TOKEN$1}`,
       "Content-Type": "application/json"
     }
   };
@@ -1424,7 +1582,7 @@ async function printifyRequest(endpoint, method = "GET", body) {
   return data;
 }
 async function uploadImageToPrintify(localPath, filename) {
-  console.log(`[printify] Uploading image: ${filename}`);
+  console.log(`[printify] Uploading image from file: ${filename}`);
   const fileBuffer = fs.readFileSync(localPath);
   const base64Data = fileBuffer.toString("base64");
   console.log(`[printify] File size: ${fileBuffer.length} bytes`);
@@ -1438,6 +1596,31 @@ async function uploadImageToPrintify(localPath, filename) {
     id: result.id,
     preview_url: result.preview_url
   };
+}
+async function uploadBase64ToPrintify(base64Data, filename, mimeType = "image/png") {
+  console.log(`[printify] Uploading base64 image: ${filename} (${Math.round(base64Data.length / 1024)}KB)`);
+  const result = await printifyRequest("/uploads/images.json", "POST", {
+    file_name: filename,
+    contents: base64Data
+  });
+  console.log(`[printify] ✓ Image uploaded: ID=${result.id}`);
+  console.log(`[printify]   Preview: ${result.preview_url}`);
+  return {
+    id: result.id,
+    preview_url: result.preview_url
+  };
+}
+async function downloadImageAsBase64(imageUrl) {
+  console.log(`[printify] Downloading image from: ${imageUrl}`);
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const mimeType = response.headers.get("content-type") || "image/png";
+  const base64 = buffer.toString("base64");
+  console.log(`[printify] Downloaded: ${buffer.length} bytes, ${mimeType}`);
+  return { base64, mimeType };
 }
 function resolvePrintifyVariantId(base, shopifyVariantId, shopifyOrder) {
   let variantColor = "";
@@ -1467,6 +1650,22 @@ function resolvePrintifyVariantId(base, shopifyVariantId, shopifyOrder) {
   );
   return defaultVariant;
 }
+function getCustomerImageUrl(record) {
+  if (record.printFileUrl && record.printFileUrl.includes("/api/print-files/")) {
+    return record.printFileUrl;
+  }
+  try {
+    const persData = JSON.parse(record.personalizationData || "{}");
+    for (const key of Object.keys(persData)) {
+      const layer = persData[key];
+      if (layer.type === "image" && layer.uploadedUrl) {
+        return layer.uploadedUrl;
+      }
+    }
+  } catch {
+  }
+  return null;
+}
 async function processPersonalizedOrderPrintify(recordId, shopifyOrder) {
   var _a2;
   console.log(`[printify] ═══════════════════════════════════════════════`);
@@ -1480,54 +1679,72 @@ async function processPersonalizedOrderPrintify(recordId, shopifyOrder) {
     console.log(`[printify] Shop: ${record.shop}`);
     console.log(`[printify] Product base: ${record.productBaseSlug || "unknown"}`);
     console.log(`[printify] Technique: ${record.technique || "dtg"}`);
+    console.log(`[printify] PrintFileUrl: ${record.printFileUrl || "none"}`);
     const base = getProductBase(record.productBaseSlug);
     if (!base) {
       throw new Error(`Product base not found: ${record.productBaseSlug}`);
     }
-    const technique = record.technique || "dtg";
-    const placementKey = record.placementKey || "front";
-    let persData = {};
-    try {
-      persData = JSON.parse(record.personalizationData || "{}");
-    } catch {
-      console.error("[printify] Failed to parse personalizationData");
-    }
-    const layers = (persData.layers || []).map((l) => ({
-      key: l.key || "text",
-      type: l.type || "text",
-      value: (l.text || l.value || "").toUpperCase().replace(/[^A-Z0-9 ]/g, ""),
-      font: l.font || "block",
-      color: l.color || "#000000",
-      position: l.position || { x: 10, y: 10, width: 80, height: 80 }
-    }));
-    if (layers.length === 0 && record.monogramText) {
-      layers.push({
-        key: "main_text",
-        type: "text",
-        value: record.monogramText,
-        font: record.monogramStyle || "block",
-        color: record.threadColor || "#000000",
-        position: { x: 10, y: 10, width: 80, height: 80 }
+    let printifyImage;
+    const customerImageUrl = getCustomerImageUrl(record);
+    if (customerImageUrl) {
+      console.log(`[printify] Flow A: Customer-uploaded image`);
+      console.log(`[printify] Image URL: ${customerImageUrl}`);
+      await prisma.personalizationOrder.update({
+        where: { id: recordId },
+        data: { status: "uploading" }
       });
+      const { base64, mimeType } = await downloadImageAsBase64(customerImageUrl);
+      const orderFilename = `custom-${record.shopifyOrderName.replace("#", "")}-${Date.now()}.png`;
+      printifyImage = await uploadBase64ToPrintify(base64, orderFilename, mimeType);
+      console.log(`[printify] ✓ Customer image uploaded to Printify: ${printifyImage.id}`);
+    } else {
+      console.log(`[printify] Flow B: Text/monogram personalization`);
+      const technique = record.technique || "dtg";
+      const placementKey = record.placementKey || "front";
+      let persData = {};
+      try {
+        persData = JSON.parse(record.personalizationData || "{}");
+      } catch {
+        console.error("[printify] Failed to parse personalizationData");
+      }
+      const layers = (persData.layers || []).map((l) => ({
+        key: l.key || "text",
+        type: l.type || "text",
+        value: l.text || l.value || "",
+        font: l.font || "block",
+        color: l.color || "#000000",
+        position: l.position || { x: 10, y: 10, width: 80, height: 80 }
+      }));
+      if (layers.length === 0 && record.monogramText) {
+        layers.push({
+          key: "main_text",
+          type: "text",
+          value: record.monogramText,
+          font: record.monogramStyle || "block",
+          color: record.threadColor || "#000000",
+          position: { x: 10, y: 10, width: 80, height: 80 }
+        });
+      }
+      console.log(`[printify] Generating print file with ${layers.length} layers`);
+      const printFilePath = await generatePrintFileAsync({
+        productBaseSlug: record.productBaseSlug,
+        technique,
+        placementKey,
+        layers
+      });
+      console.log(`[printify] Print file generated: ${printFilePath}`);
+      await prisma.personalizationOrder.update({
+        where: { id: recordId },
+        data: { status: "uploading" }
+      });
+      const orderFilename = `monogram-${record.shopifyOrderName.replace("#", "")}-${Date.now()}.png`;
+      printifyImage = await uploadImageToPrintify(printFilePath, orderFilename);
+      console.log(`[printify] ✓ Print file uploaded to Printify: ${printifyImage.id}`);
+      try {
+        fs.unlinkSync(printFilePath);
+      } catch {
+      }
     }
-    console.log(`[printify] Generating print file with ${layers.length} layers`);
-    const printFilePath = await generatePrintFileAsync({
-      productBaseSlug: record.productBaseSlug,
-      technique,
-      placementKey,
-      layers
-    });
-    console.log(`[printify] Print file generated: ${printFilePath}`);
-    await prisma.personalizationOrder.update({
-      where: { id: recordId },
-      data: { status: "uploading" }
-    });
-    const orderFilename = `monogram-${record.shopifyOrderName.replace("#", "")}-${Date.now()}.png`;
-    const printifyImage = await uploadImageToPrintify(
-      printFilePath,
-      orderFilename
-    );
-    console.log(`[printify] ✓ Image uploaded to Printify: ${printifyImage.id}`);
     const printifyVariantId = resolvePrintifyVariantId(
       base,
       record.shopifyVariantId,
@@ -1608,10 +1825,6 @@ async function processPersonalizedOrderPrintify(recordId, shopifyOrder) {
       `[printify] ✓ Order ${recordId} completed → Printify #${printifyOrderId} (${printifyStatus})`
     );
     console.log(`[printify] ═══════════════════════════════════════════════`);
-    try {
-      fs.unlinkSync(printFilePath);
-    } catch {
-    }
   } catch (error) {
     console.error(
       `[printify] ✗ Error processing order ${recordId}:`,
@@ -1628,7 +1841,7 @@ async function processPersonalizedOrderPrintify(recordId, shopifyOrder) {
     });
   }
 }
-const action$4 = async ({ request }) => {
+const action$6 = async ({ request }) => {
   const { shop, topic, payload } = await authenticate.webhook(request);
   console.log(`[webhook] Received ${topic} for ${shop}`);
   const order = payload;
@@ -1649,7 +1862,8 @@ const action$4 = async ({ request }) => {
     const monogramText = properties["_monogram_text"];
     const monogramStyle = properties["_monogram_style"] || "script";
     const threadColor = properties["_thread_color"] || "#000000";
-    if (!personalizationData && !monogramText) {
+    const uploadedImageUrl = properties["_uploaded_image_url"];
+    if (!personalizationData && !monogramText && !uploadedImageUrl) {
       continue;
     }
     const variantId = String(lineItem.variant_id);
@@ -1659,6 +1873,9 @@ const action$4 = async ({ request }) => {
     }
     if (monogramText) {
       console.log(`  Monogram: "${monogramText}" (${monogramStyle}, ${threadColor})`);
+    }
+    if (uploadedImageUrl) {
+      console.log(`  Uploaded image: ${uploadedImageUrl}`);
     }
     let fulfillmentProvider = "printful";
     if (productBaseSlug) {
@@ -1700,6 +1917,8 @@ const action$4 = async ({ request }) => {
         monogramText: monogramText || null,
         monogramStyle,
         threadColor,
+        // Customer uploaded image URL (for DTG/image products like tote bags)
+        printFileUrl: uploadedImageUrl || null,
         status: "pending"
       }
     });
@@ -1716,11 +1935,11 @@ const action$4 = async ({ request }) => {
   }
   return new Response();
 };
-const route6 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route7 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  action: action$4
+  action: action$6
 }, Symbol.toStringTag, { value: "Module" }));
-const action$3 = async ({ request }) => {
+const action$5 = async ({ request }) => {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
   }
@@ -1956,11 +2175,81 @@ async function syncTrackingToShopify$1(record, tracking) {
     );
   }
 }
-const route7 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route8 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  action: action$3
+  action: action$5
 }, Symbol.toStringTag, { value: "Module" }));
-const action$2 = async ({ request }) => {
+const PRINTIFY_TOKEN = process.env.PRINTIFY_TOKEN || "";
+const PRINTIFY_API = "https://api.printify.com/v1";
+const loader$d = async ({ request }) => {
+  await authenticate.admin(request);
+  const url = new URL(request.url);
+  const action2 = url.searchParams.get("action") || "blueprints";
+  const searchQuery = url.searchParams.get("q") || "";
+  const id = url.searchParams.get("id") || "";
+  const blueprintId = url.searchParams.get("blueprint_id") || "";
+  const providerId = url.searchParams.get("provider_id") || "";
+  if (!PRINTIFY_TOKEN) {
+    return json({ error: "PRINTIFY_TOKEN not configured" }, { status: 500 });
+  }
+  try {
+    let endpoint = "";
+    switch (action2) {
+      case "blueprints":
+        endpoint = "/catalog/blueprints.json";
+        break;
+      case "blueprint":
+        if (!id) return json({ error: "Missing id parameter" }, { status: 400 });
+        endpoint = `/catalog/blueprints/${id}.json`;
+        break;
+      case "providers":
+        if (!id) return json({ error: "Missing id parameter" }, { status: 400 });
+        endpoint = `/catalog/blueprints/${id}/print_providers.json`;
+        break;
+      case "variants":
+        if (!blueprintId || !providerId) {
+          return json({ error: "Missing blueprint_id or provider_id" }, { status: 400 });
+        }
+        endpoint = `/catalog/blueprints/${blueprintId}/print_providers/${providerId}/variants.json`;
+        break;
+      default:
+        return json({ error: "Unknown action" }, { status: 400 });
+    }
+    const response = await fetch(`${PRINTIFY_API}${endpoint}`, {
+      headers: {
+        Authorization: `Bearer ${PRINTIFY_TOKEN}`,
+        "Content-Type": "application/json"
+      }
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[printify-catalog] API error ${response.status}: ${errorText}`);
+      return json(
+        { error: `Printify API error: ${response.status}`, details: errorText },
+        { status: response.status }
+      );
+    }
+    let data = await response.json();
+    if (action2 === "blueprints" && searchQuery && Array.isArray(data)) {
+      const q = searchQuery.toLowerCase();
+      data = data.filter(
+        (bp) => {
+          var _a2, _b, _c;
+          return ((_a2 = bp.title) == null ? void 0 : _a2.toLowerCase().includes(q)) || ((_b = bp.brand) == null ? void 0 : _b.toLowerCase().includes(q)) || ((_c = bp.model) == null ? void 0 : _c.toLowerCase().includes(q)) || String(bp.id).includes(q);
+        }
+      );
+    }
+    return json(data);
+  } catch (error) {
+    console.error("[printify-catalog] Error:", error.message);
+    return json({ error: error.message }, { status: 500 });
+  }
+};
+const route9 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  loader: loader$d
+}, Symbol.toStringTag, { value: "Module" }));
+const action$4 = async ({ request }) => {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
   }
@@ -2164,11 +2453,11 @@ async function syncTrackingToShopify(record, tracking) {
     );
   }
 }
-const route8 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route10 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  action: action$2
+  action: action$4
 }, Symbol.toStringTag, { value: "Module" }));
-const loader$a = async ({ request }) => {
+const loader$c = async ({ request }) => {
   const headers2 = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*"
@@ -2211,11 +2500,11 @@ const loader$a = async ({ request }) => {
     );
   }
 };
-const route9 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route11 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  loader: loader$a
+  loader: loader$c
 }, Symbol.toStringTag, { value: "Module" }));
-const loader$9 = async ({ params }) => {
+const loader$b = async ({ params }) => {
   const fileId = params.id;
   if (!fileId) {
     return new Response("Not found", { status: 404 });
@@ -2238,11 +2527,11 @@ const loader$9 = async ({ params }) => {
     }
   });
 };
-const route10 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route12 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  loader: loader$9
+  loader: loader$b
 }, Symbol.toStringTag, { value: "Module" }));
-const loader$8 = async ({ request }) => {
+const loader$a = async ({ request }) => {
   const orders = await prisma.personalizationOrder.findMany({
     orderBy: { createdAt: "desc" },
     take: 20
@@ -2269,9 +2558,9 @@ const loader$8 = async ({ request }) => {
     }))
   });
 };
-const route11 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route13 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  loader: loader$8
+  loader: loader$a
 }, Symbol.toStringTag, { value: "Module" }));
 function extractNumericId(id) {
   if (id.startsWith("gid://")) {
@@ -2280,8 +2569,8 @@ function extractNumericId(id) {
   }
   return id;
 }
-const loader$7 = async ({ request }) => {
-  var _a2, _b, _c;
+const loader$9 = async ({ request }) => {
+  var _a2, _b, _c, _d, _e, _f, _g;
   const url = new URL(request.url);
   const productId = url.searchParams.get("product_id") || "";
   const variantId = url.searchParams.get("variant_id") || "";
@@ -2382,15 +2671,31 @@ const loader$7 = async ({ request }) => {
       );
     }
     const productBase = getProductBase(template.productBaseSlug);
-    if (!productBase) {
+    const dbProductBase = await prisma.productBaseDef.findFirst({
+      where: { slug: template.productBaseSlug, isActive: true },
+      include: { variants: { where: { isEnabled: true }, orderBy: { sortOrder: "asc" } } }
+    });
+    if (!productBase && !dbProductBase) {
       return new Response(
-        JSON.stringify({ found: false, error: "Product base not found in registry" }),
+        JSON.stringify({ found: false, error: "Product base not found in registry or database" }),
         { status: 200, headers: headers2 }
       );
     }
-    const placementSpec = productBase.placements.find(
-      (p) => p.placementKey === template.placementKey
-    );
+    let placementSpec = null;
+    if (productBase) {
+      placementSpec = productBase.placements.find(
+        (p) => p.placementKey === template.placementKey
+      );
+    }
+    if (!placementSpec && dbProductBase) {
+      try {
+        const dbPlacements = JSON.parse(dbProductBase.placements);
+        placementSpec = dbPlacements.find(
+          (p) => p.placementKey === template.placementKey
+        );
+      } catch {
+      }
+    }
     let enabledFontKeys = [];
     try {
       const parsed = JSON.parse(template.enabledFonts);
@@ -2415,12 +2720,22 @@ const loader$7 = async ({ request }) => {
     } catch {
       enabledVariantColors = [];
     }
-    const variants = enabledVariantColors.length > 0 ? productBase.variants.filter(
-      (v) => enabledVariantColors.includes(v.color)
-    ) : productBase.variants;
+    let variants = [];
+    if (productBase) {
+      variants = enabledVariantColors.length > 0 ? productBase.variants.filter((v) => enabledVariantColors.includes(v.color)) : [...productBase.variants];
+    } else if (dbProductBase) {
+      const dbVars = dbProductBase.variants.map((v) => ({
+        color: v.color,
+        colorHex: v.colorHex,
+        size: v.size,
+        printfulVariantId: v.printfulVariantId || 0,
+        printifyVariantId: v.printifyVariantId
+      }));
+      variants = enabledVariantColors.length > 0 ? dbVars.filter((v) => enabledVariantColors.includes(v.color)) : dbVars;
+    }
     let currentMockupUrl = null;
     const variantImageMap = {};
-    if (productBase.variantMockups) {
+    if (productBase == null ? void 0 : productBase.variantMockups) {
       for (const [colorName, url2] of Object.entries(productBase.variantMockups)) {
         variantImageMap[colorName] = url2;
         variantImageMap[colorName.toLowerCase()] = url2;
@@ -2429,6 +2744,17 @@ const loader$7 = async ({ request }) => {
         const mockupUrl = productBase.variantMockups[variant.color];
         if (mockupUrl) {
           variantImageMap[String(variant.printfulVariantId)] = mockupUrl;
+        }
+      }
+    }
+    if (dbProductBase) {
+      for (const dbVar of dbProductBase.variants) {
+        if (dbVar.mockupImageUrl) {
+          variantImageMap[dbVar.color] = dbVar.mockupImageUrl;
+          variantImageMap[dbVar.color.toLowerCase()] = dbVar.mockupImageUrl;
+          if (dbVar.printifyVariantId) {
+            variantImageMap[String(dbVar.printifyVariantId)] = dbVar.mockupImageUrl;
+          }
         }
       }
     }
@@ -2446,7 +2772,7 @@ const loader$7 = async ({ request }) => {
     }
     if (!currentMockupUrl) {
       const defaultMockup = template.mockupImages.find((m) => m.isDefault);
-      currentMockupUrl = (defaultMockup == null ? void 0 : defaultMockup.imageUrl) || ((_a2 = template.mockupImages[0]) == null ? void 0 : _a2.imageUrl) || productBase.defaultMockupUrl || null;
+      currentMockupUrl = (defaultMockup == null ? void 0 : defaultMockup.imageUrl) || ((_a2 = template.mockupImages[0]) == null ? void 0 : _a2.imageUrl) || (dbProductBase == null ? void 0 : dbProductBase.defaultMockupUrl) || (productBase == null ? void 0 : productBase.defaultMockupUrl) || null;
     }
     const layers = template.layers.map((layer) => {
       let layerFonts = enabledFonts;
@@ -2483,7 +2809,10 @@ const loader$7 = async ({ request }) => {
         acceptedFileTypes: layer.acceptedFileTypes ? JSON.parse(layer.acceptedFileTypes) : void 0,
         maxFileSizeMb: layer.maxFileSizeMb,
         // Fixed image layer options
-        fixedImageUrl: layer.fixedImageUrl
+        fixedImageUrl: layer.fixedImageUrl,
+        // Mad Lib options
+        madLibTemplate: layer.madLibTemplate,
+        madLibPrompts: layer.madLibPrompts
       };
     });
     return new Response(
@@ -2492,9 +2821,9 @@ const loader$7 = async ({ request }) => {
         template: {
           id: template.id,
           productBaseSlug: template.productBaseSlug,
-          productBaseName: productBase.name,
-          brand: productBase.brand,
-          category: productBase.category,
+          productBaseName: (productBase == null ? void 0 : productBase.name) || (dbProductBase == null ? void 0 : dbProductBase.name) || "",
+          brand: (productBase == null ? void 0 : productBase.brand) || (dbProductBase == null ? void 0 : dbProductBase.brand) || "",
+          category: (productBase == null ? void 0 : productBase.category) || (dbProductBase == null ? void 0 : dbProductBase.category) || "accessory",
           technique: template.technique,
           placementKey: template.placementKey,
           placementName: (placementSpec == null ? void 0 : placementSpec.displayName) || template.placementKey,
@@ -2505,9 +2834,13 @@ const loader$7 = async ({ request }) => {
             height: template.printAreaHeight
           },
           printFileSize: placementSpec ? {
-            width: placementSpec.fileSizePx.width,
-            height: placementSpec.fileSizePx.height,
+            width: ((_b = placementSpec.fileSizePx) == null ? void 0 : _b.width) || ((_c = placementSpec.fileSizePx) == null ? void 0 : _c.width),
+            height: ((_d = placementSpec.fileSizePx) == null ? void 0 : _d.height) || ((_e = placementSpec.fileSizePx) == null ? void 0 : _e.height),
             dpi: placementSpec.dpi
+          } : dbProductBase ? {
+            width: dbProductBase.printFileWidth,
+            height: dbProductBase.printFileHeight,
+            dpi: dbProductBase.printFileDpi
           } : null,
           layers,
           fonts: enabledFonts,
@@ -2515,7 +2848,7 @@ const loader$7 = async ({ request }) => {
           variants,
           currentMockupUrl,
           variantImages: variantImageMap,
-          defaultMockupUrl: ((_b = template.mockupImages.find((m) => m.isDefault)) == null ? void 0 : _b.imageUrl) || ((_c = template.mockupImages[0]) == null ? void 0 : _c.imageUrl) || productBase.defaultMockupUrl || null
+          defaultMockupUrl: ((_f = template.mockupImages.find((m) => m.isDefault)) == null ? void 0 : _f.imageUrl) || ((_g = template.mockupImages[0]) == null ? void 0 : _g.imageUrl) || (dbProductBase == null ? void 0 : dbProductBase.defaultMockupUrl) || (productBase == null ? void 0 : productBase.defaultMockupUrl) || null
         }
       }),
       { status: 200, headers: headers2 }
@@ -2528,9 +2861,9 @@ const loader$7 = async ({ request }) => {
     );
   }
 };
-const route12 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route14 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  loader: loader$7
+  loader: loader$9
 }, Symbol.toStringTag, { value: "Module" }));
 const fontsDir = path.join(process.cwd(), "app", "fonts");
 if (!process.env.FONTCONFIG_PATH) {
@@ -2540,9 +2873,10 @@ let _sharp = null;
 async function getSharp() {
   if (!_sharp) {
     process.env.FONTCONFIG_PATH = fontsDir;
-    _sharp = await import("sharp");
+    const sharpModule = await import("sharp");
+    _sharp = sharpModule.default || sharpModule;
   }
-  return _sharp.default;
+  return _sharp;
 }
 const PREVIEW_SIZE_FULL = 600;
 const PREVIEW_SIZE_THUMB = 300;
@@ -2594,9 +2928,21 @@ function buildTextSvg(text2, style, color, paX, paY, paW, paH, previewSize) {
     textElements += `<text x="${centerX - spacing}" y="${centerY + bigSize * 0.03}" font-family="${fontFamily}" font-size="${Math.round(smallSize)}"${weight} ${fill} ${anchor} ${baseline}>${first}</text>`;
     textElements += `<text x="${centerX + spacing}" y="${centerY + bigSize * 0.03}" font-family="${fontFamily}" font-size="${Math.round(smallSize)}"${weight} ${fill} ${anchor} ${baseline}>${middle}</text>`;
   } else {
-    const fontSize = isScript ? Math.min(paW * 0.5, paH * 0.7) : Math.min(paW * 0.4, paH * 0.6);
-    const escaped = svgEscape(text2);
-    textElements = `<text x="${centerX}" y="${centerY}" font-family="${fontFamily}" font-size="${Math.round(fontSize)}"${weight} ${fill} ${anchor} ${baseline}>${escaped}</text>`;
+    const lines = text2.split("\n");
+    let fontSize = isScript ? Math.min(paW * 0.5, paH * 0.7) : Math.min(paW * 0.4, paH * 0.6);
+    if (lines.length > 3) fontSize = fontSize * (3 / lines.length);
+    if (lines.length === 1) {
+      const escaped = svgEscape(text2);
+      textElements = `<text x="${centerX}" y="${centerY}" font-family="${fontFamily}" font-size="${Math.round(fontSize)}"${weight} ${fill} ${anchor} ${baseline}>${escaped}</text>`;
+    } else {
+      const lineHeight = fontSize * 1.2;
+      const totalHeight = lines.length * lineHeight;
+      const startY = centerY - totalHeight / 2 + lineHeight / 2;
+      textElements = lines.map((line, i) => {
+        const escaped = svgEscape(line);
+        return `<text x="${centerX}" y="${startY + i * lineHeight}" font-family="${fontFamily}" font-size="${Math.round(fontSize)}"${weight} ${fill} ${anchor} ${baseline}>${escaped}</text>`;
+      }).join("");
+    }
   }
   return `<svg width="${previewSize}" height="${previewSize}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -2642,10 +2988,10 @@ async function getCachedMockup(sharpFn, imageUrl, previewSize) {
   evictOldest(mockupCache, MOCKUP_CACHE_MAX);
   return { resized, srcW, srcH };
 }
-const loader$6 = async ({ request }) => {
+const loader$8 = async ({ request }) => {
   var _a2, _b;
   const url = new URL(request.url);
-  const text2 = (url.searchParams.get("text") || "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, 10);
+  const text2 = (url.searchParams.get("text") || "").slice(0, 1e3);
   const style = url.searchParams.get("style") || "block";
   const color = url.searchParams.get("color") || "#000000";
   const format = url.searchParams.get("format") || "image";
@@ -2820,9 +3166,9 @@ const loader$6 = async ({ request }) => {
     }
   });
 };
-const route13 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route15 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  loader: loader$6
+  loader: loader$8
 }, Symbol.toStringTag, { value: "Module" }));
 const Polaris = /* @__PURE__ */ JSON.parse('{"ActionMenu":{"Actions":{"moreActions":"More actions"},"RollupActions":{"rollupButton":"View actions"}},"ActionList":{"SearchField":{"clearButtonLabel":"Clear","search":"Search","placeholder":"Search actions"}},"Avatar":{"label":"Avatar","labelWithInitials":"Avatar with initials {initials}"},"Autocomplete":{"spinnerAccessibilityLabel":"Loading","ellipsis":"{content}…"},"Badge":{"PROGRESS_LABELS":{"incomplete":"Incomplete","partiallyComplete":"Partially complete","complete":"Complete"},"TONE_LABELS":{"info":"Info","success":"Success","warning":"Warning","critical":"Critical","attention":"Attention","new":"New","readOnly":"Read-only","enabled":"Enabled"},"progressAndTone":"{toneLabel} {progressLabel}"},"Banner":{"dismissButton":"Dismiss notification"},"Button":{"spinnerAccessibilityLabel":"Loading"},"Common":{"checkbox":"checkbox","undo":"Undo","cancel":"Cancel","clear":"Clear","close":"Close","submit":"Submit","more":"More"},"ContextualSaveBar":{"save":"Save","discard":"Discard"},"DataTable":{"sortAccessibilityLabel":"sort {direction} by","navAccessibilityLabel":"Scroll table {direction} one column","totalsRowHeading":"Totals","totalRowHeading":"Total"},"DatePicker":{"previousMonth":"Show previous month, {previousMonthName} {showPreviousYear}","nextMonth":"Show next month, {nextMonth} {nextYear}","today":"Today ","start":"Start of range","end":"End of range","months":{"january":"January","february":"February","march":"March","april":"April","may":"May","june":"June","july":"July","august":"August","september":"September","october":"October","november":"November","december":"December"},"days":{"monday":"Monday","tuesday":"Tuesday","wednesday":"Wednesday","thursday":"Thursday","friday":"Friday","saturday":"Saturday","sunday":"Sunday"},"daysAbbreviated":{"monday":"Mo","tuesday":"Tu","wednesday":"We","thursday":"Th","friday":"Fr","saturday":"Sa","sunday":"Su"}},"DiscardConfirmationModal":{"title":"Discard all unsaved changes","message":"If you discard changes, you’ll delete any edits you made since you last saved.","primaryAction":"Discard changes","secondaryAction":"Continue editing"},"DropZone":{"single":{"overlayTextFile":"Drop file to upload","overlayTextImage":"Drop image to upload","overlayTextVideo":"Drop video to upload","actionTitleFile":"Add file","actionTitleImage":"Add image","actionTitleVideo":"Add video","actionHintFile":"or drop file to upload","actionHintImage":"or drop image to upload","actionHintVideo":"or drop video to upload","labelFile":"Upload file","labelImage":"Upload image","labelVideo":"Upload video"},"allowMultiple":{"overlayTextFile":"Drop files to upload","overlayTextImage":"Drop images to upload","overlayTextVideo":"Drop videos to upload","actionTitleFile":"Add files","actionTitleImage":"Add images","actionTitleVideo":"Add videos","actionHintFile":"or drop files to upload","actionHintImage":"or drop images to upload","actionHintVideo":"or drop videos to upload","labelFile":"Upload files","labelImage":"Upload images","labelVideo":"Upload videos"},"errorOverlayTextFile":"File type is not valid","errorOverlayTextImage":"Image type is not valid","errorOverlayTextVideo":"Video type is not valid"},"EmptySearchResult":{"altText":"Empty search results"},"Frame":{"skipToContent":"Skip to content","navigationLabel":"Navigation","Navigation":{"closeMobileNavigationLabel":"Close navigation"}},"FullscreenBar":{"back":"Back","accessibilityLabel":"Exit fullscreen mode"},"Filters":{"moreFilters":"More filters","moreFiltersWithCount":"More filters ({count})","filter":"Filter {resourceName}","noFiltersApplied":"No filters applied","cancel":"Cancel","done":"Done","clearAllFilters":"Clear all filters","clear":"Clear","clearLabel":"Clear {filterName}","addFilter":"Add filter","clearFilters":"Clear all","searchInView":"in:{viewName}"},"FilterPill":{"clear":"Clear","unsavedChanges":"Unsaved changes - {label}"},"IndexFilters":{"searchFilterTooltip":"Search and filter","searchFilterTooltipWithShortcut":"Search and filter (F)","searchFilterAccessibilityLabel":"Search and filter results","sort":"Sort your results","addView":"Add a new view","newView":"Custom search","SortButton":{"ariaLabel":"Sort the results","tooltip":"Sort","title":"Sort by","sorting":{"asc":"Ascending","desc":"Descending","az":"A-Z","za":"Z-A"}},"EditColumnsButton":{"tooltip":"Edit columns","accessibilityLabel":"Customize table column order and visibility"},"UpdateButtons":{"cancel":"Cancel","update":"Update","save":"Save","saveAs":"Save as","modal":{"title":"Save view as","label":"Name","sameName":"A view with this name already exists. Please choose a different name.","save":"Save","cancel":"Cancel"}}},"IndexProvider":{"defaultItemSingular":"Item","defaultItemPlural":"Items","allItemsSelected":"All {itemsLength}+ {resourceNamePlural} are selected","selected":"{selectedItemsCount} selected","a11yCheckboxDeselectAllSingle":"Deselect {resourceNameSingular}","a11yCheckboxSelectAllSingle":"Select {resourceNameSingular}","a11yCheckboxDeselectAllMultiple":"Deselect all {itemsLength} {resourceNamePlural}","a11yCheckboxSelectAllMultiple":"Select all {itemsLength} {resourceNamePlural}"},"IndexTable":{"emptySearchTitle":"No {resourceNamePlural} found","emptySearchDescription":"Try changing the filters or search term","onboardingBadgeText":"New","resourceLoadingAccessibilityLabel":"Loading {resourceNamePlural}…","selectAllLabel":"Select all {resourceNamePlural}","selected":"{selectedItemsCount} selected","undo":"Undo","selectAllItems":"Select all {itemsLength}+ {resourceNamePlural}","selectItem":"Select {resourceName}","selectButtonText":"Select","sortAccessibilityLabel":"sort {direction} by"},"Loading":{"label":"Page loading bar"},"Modal":{"iFrameTitle":"body markup","modalWarning":"These required properties are missing from Modal: {missingProps}"},"Page":{"Header":{"rollupActionsLabel":"View actions for {title}","pageReadyAccessibilityLabel":"{title}. This page is ready"}},"Pagination":{"previous":"Previous","next":"Next","pagination":"Pagination"},"ProgressBar":{"negativeWarningMessage":"Values passed to the progress prop shouldn’t be negative. Resetting {progress} to 0.","exceedWarningMessage":"Values passed to the progress prop shouldn’t exceed 100. Setting {progress} to 100."},"ResourceList":{"sortingLabel":"Sort by","defaultItemSingular":"item","defaultItemPlural":"items","showing":"Showing {itemsCount} {resource}","showingTotalCount":"Showing {itemsCount} of {totalItemsCount} {resource}","loading":"Loading {resource}","selected":"{selectedItemsCount} selected","allItemsSelected":"All {itemsLength}+ {resourceNamePlural} in your store are selected","allFilteredItemsSelected":"All {itemsLength}+ {resourceNamePlural} in this filter are selected","selectAllItems":"Select all {itemsLength}+ {resourceNamePlural} in your store","selectAllFilteredItems":"Select all {itemsLength}+ {resourceNamePlural} in this filter","emptySearchResultTitle":"No {resourceNamePlural} found","emptySearchResultDescription":"Try changing the filters or search term","selectButtonText":"Select","a11yCheckboxDeselectAllSingle":"Deselect {resourceNameSingular}","a11yCheckboxSelectAllSingle":"Select {resourceNameSingular}","a11yCheckboxDeselectAllMultiple":"Deselect all {itemsLength} {resourceNamePlural}","a11yCheckboxSelectAllMultiple":"Select all {itemsLength} {resourceNamePlural}","Item":{"actionsDropdownLabel":"Actions for {accessibilityLabel}","actionsDropdown":"Actions dropdown","viewItem":"View details for {itemName}"},"BulkActions":{"actionsActivatorLabel":"Actions","moreActionsActivatorLabel":"More actions"}},"SkeletonPage":{"loadingLabel":"Page loading"},"Tabs":{"newViewAccessibilityLabel":"Create new view","newViewTooltip":"Create view","toggleTabsLabel":"More views","Tab":{"rename":"Rename view","duplicate":"Duplicate view","edit":"Edit view","editColumns":"Edit columns","delete":"Delete view","copy":"Copy of {name}","deleteModal":{"title":"Delete view?","description":"This can’t be undone. {viewName} view will no longer be available in your admin.","cancel":"Cancel","delete":"Delete view"}},"RenameModal":{"title":"Rename view","label":"Name","cancel":"Cancel","create":"Save","errors":{"sameName":"A view with this name already exists. Please choose a different name."}},"DuplicateModal":{"title":"Duplicate view","label":"Name","cancel":"Cancel","create":"Create view","errors":{"sameName":"A view with this name already exists. Please choose a different name."}},"CreateViewModal":{"title":"Create new view","label":"Name","cancel":"Cancel","create":"Create view","errors":{"sameName":"A view with this name already exists. Please choose a different name."}}},"Tag":{"ariaLabel":"Remove {children}"},"TextField":{"characterCount":"{count} characters","characterCountWithMaxLength":"{count} of {limit} characters used"},"TooltipOverlay":{"accessibilityLabel":"Tooltip: {label}"},"TopBar":{"toggleMenuLabel":"Toggle menu","SearchField":{"clearButtonLabel":"Clear","search":"Search"}},"MediaCard":{"dismissButton":"Dismiss","popoverButton":"Actions"},"VideoThumbnail":{"playButtonA11yLabel":{"default":"Play video","defaultWithDuration":"Play video of length {duration}","duration":{"hours":{"other":{"only":"{hourCount} hours","andMinutes":"{hourCount} hours and {minuteCount} minutes","andMinute":"{hourCount} hours and {minuteCount} minute","minutesAndSeconds":"{hourCount} hours, {minuteCount} minutes, and {secondCount} seconds","minutesAndSecond":"{hourCount} hours, {minuteCount} minutes, and {secondCount} second","minuteAndSeconds":"{hourCount} hours, {minuteCount} minute, and {secondCount} seconds","minuteAndSecond":"{hourCount} hours, {minuteCount} minute, and {secondCount} second","andSeconds":"{hourCount} hours and {secondCount} seconds","andSecond":"{hourCount} hours and {secondCount} second"},"one":{"only":"{hourCount} hour","andMinutes":"{hourCount} hour and {minuteCount} minutes","andMinute":"{hourCount} hour and {minuteCount} minute","minutesAndSeconds":"{hourCount} hour, {minuteCount} minutes, and {secondCount} seconds","minutesAndSecond":"{hourCount} hour, {minuteCount} minutes, and {secondCount} second","minuteAndSeconds":"{hourCount} hour, {minuteCount} minute, and {secondCount} seconds","minuteAndSecond":"{hourCount} hour, {minuteCount} minute, and {secondCount} second","andSeconds":"{hourCount} hour and {secondCount} seconds","andSecond":"{hourCount} hour and {secondCount} second"}},"minutes":{"other":{"only":"{minuteCount} minutes","andSeconds":"{minuteCount} minutes and {secondCount} seconds","andSecond":"{minuteCount} minutes and {secondCount} second"},"one":{"only":"{minuteCount} minute","andSeconds":"{minuteCount} minute and {secondCount} seconds","andSecond":"{minuteCount} minute and {secondCount} second"}},"seconds":{"other":"{secondCount} seconds","one":"{secondCount} second"}}}}}');
 const polarisTranslations = {
@@ -2838,11 +3184,11 @@ function loginErrorMessage(loginErrors) {
   return {};
 }
 const links$1 = () => [{ rel: "stylesheet", href: polarisStyles }];
-const loader$5 = async ({ request }) => {
+const loader$7 = async ({ request }) => {
   const errors = loginErrorMessage(await login(request));
   return { errors, polarisTranslations };
 };
-const action$1 = async ({ request }) => {
+const action$3 = async ({ request }) => {
   const errors = loginErrorMessage(await login(request));
   return {
     errors
@@ -2871,12 +3217,12 @@ function Auth() {
     /* @__PURE__ */ jsx(Button, { submit: true, children: "Log in" })
   ] }) }) }) }) });
 }
-const route14 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route16 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  action: action$1,
+  action: action$3,
   default: Auth,
   links: links$1,
-  loader: loader$5
+  loader: loader$7
 }, Symbol.toStringTag, { value: "Module" }));
 const index = "_index_12o3y_1";
 const heading = "_heading_12o3y_11";
@@ -2898,7 +3244,7 @@ const styles = {
   button,
   list
 };
-const loader$4 = async ({ request }) => {
+const loader$6 = async ({ request }) => {
   const url = new URL(request.url);
   if (url.searchParams.get("shop")) {
     throw redirect(`/app?${url.searchParams.toString()}`);
@@ -2934,21 +3280,21 @@ function App$1() {
     ] })
   ] }) });
 }
-const route15 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route17 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: App$1,
-  loader: loader$4
+  loader: loader$6
 }, Symbol.toStringTag, { value: "Module" }));
-const loader$3 = async ({ request }) => {
+const loader$5 = async ({ request }) => {
   await authenticate.admin(request);
   return null;
 };
-const route16 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route18 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  loader: loader$3
+  loader: loader$5
 }, Symbol.toStringTag, { value: "Module" }));
 const links = () => [{ rel: "stylesheet", href: polarisStyles }];
-const loader$2 = async ({ request }) => {
+const loader$4 = async ({ request }) => {
   await authenticate.admin(request);
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
 };
@@ -2957,7 +3303,9 @@ function App() {
   return /* @__PURE__ */ jsxs(AppProvider$1, { isEmbeddedApp: true, apiKey, children: [
     /* @__PURE__ */ jsxs(NavMenu, { children: [
       /* @__PURE__ */ jsx(Link, { to: "/app", rel: "home", children: "Home" }),
-      /* @__PURE__ */ jsx(Link, { to: "/app/product-bases", children: "Product Templates" })
+      /* @__PURE__ */ jsx(Link, { to: "/app/product-bases", children: "Product Templates" }),
+      /* @__PURE__ */ jsx(Link, { to: "/app/mockup-manager", children: "Mockup Manager" }),
+      /* @__PURE__ */ jsx(Link, { to: "/app/printify-import", children: "Printify Import" })
     ] }),
     /* @__PURE__ */ jsx(Outlet, {})
   ] });
@@ -2968,12 +3316,1159 @@ function ErrorBoundary() {
 const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
-const route17 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route19 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   ErrorBoundary,
   default: App,
   headers,
   links,
+  loader: loader$4
+}, Symbol.toStringTag, { value: "Module" }));
+process.env.PRINTIFY_TOKEN || "";
+const loader$3 = async ({ request }) => {
+  const { session } = await authenticate.admin(request);
+  const existingBases = await prisma.productBaseDef.findMany({
+    where: { shop: session.shop },
+    select: { slug: true, printifyBlueprintId: true }
+  });
+  return json({ shop: session.shop, existingBases });
+};
+const action$2 = async ({ request }) => {
+  var _a2, _b, _c, _d, _e;
+  const { session } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+  try {
+    if (intent === "import_blueprint") {
+      const blueprintId = parseInt(formData.get("blueprintId"));
+      const providerId = parseInt(formData.get("providerId"));
+      const blueprintTitle = formData.get("blueprintTitle");
+      const blueprintBrand = formData.get("blueprintBrand");
+      const blueprintModel = formData.get("blueprintModel");
+      const blueprintImages = formData.get("blueprintImages");
+      const category = formData.get("category");
+      const variantsJson = formData.get("variants");
+      const providerTitle = formData.get("providerTitle");
+      const slug = `${blueprintBrand}-${blueprintModel}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const existing = await prisma.productBaseDef.findUnique({
+        where: { shop_slug: { shop: session.shop, slug } }
+      });
+      if (existing) {
+        return json({ error: `Product base "${slug}" already exists. Delete it first to re-import.` }, { status: 400 });
+      }
+      const variants = JSON.parse(variantsJson);
+      const base = await prisma.productBaseDef.create({
+        data: {
+          shop: session.shop,
+          slug,
+          name: blueprintTitle,
+          brand: blueprintBrand,
+          model: blueprintModel,
+          category,
+          fulfillmentProvider: "printify",
+          printifyBlueprintId: blueprintId,
+          printifyProviderId: providerId,
+          techniques: JSON.stringify([
+            { key: "dtg", displayName: "DTG Print", isDefault: true }
+          ]),
+          placements: JSON.stringify([
+            {
+              placementKey: "front",
+              displayName: "Front",
+              technique: "dtg",
+              maxAreaInches: { width: 10, height: 12 },
+              fileSizePx: { width: 3e3, height: 3600 },
+              dpi: 300,
+              mockupPosition: { x: 15, y: 20, width: 70, height: 65 }
+            }
+          ]),
+          catalogImages: blueprintImages || "[]",
+          description: `${blueprintBrand} ${blueprintModel} — ${blueprintTitle}. Provider: ${providerTitle} (#${providerId})`
+        }
+      });
+      const colorMap = /* @__PURE__ */ new Map();
+      for (const v of variants) {
+        const color = ((_a2 = v.options) == null ? void 0 : _a2.color) || ((_c = (_b = v.title) == null ? void 0 : _b.split(" / ")) == null ? void 0 : _c[0]) || v.title;
+        if (!colorMap.has(color)) {
+          colorMap.set(color, v);
+        }
+      }
+      const hasSize = variants.some((v) => {
+        var _a3;
+        return (_a3 = v.options) == null ? void 0 : _a3.size;
+      });
+      if (hasSize) {
+        for (const [color, v] of colorMap) {
+          await prisma.productBaseVariant.create({
+            data: {
+              productBaseId: base.id,
+              color,
+              colorHex: "#ffffff",
+              // Will need to be set manually or via color mapping
+              size: ((_d = v.options) == null ? void 0 : _d.size) || null,
+              printifyVariantId: v.id
+            }
+          });
+        }
+      } else {
+        for (const v of variants) {
+          const color = ((_e = v.options) == null ? void 0 : _e.color) || v.title;
+          await prisma.productBaseVariant.create({
+            data: {
+              productBaseId: base.id,
+              color,
+              colorHex: "#ffffff",
+              printifyVariantId: v.id
+            }
+          });
+        }
+      }
+      return json({
+        success: true,
+        message: `Imported "${blueprintTitle}" with ${hasSize ? colorMap.size : variants.length} variants`,
+        baseId: base.id
+      });
+    }
+    return json({ error: "Unknown intent" }, { status: 400 });
+  } catch (error) {
+    console.error("[printify-import] Error:", error);
+    return json({ error: error.message }, { status: 500 });
+  }
+};
+function BlueprintSearch({
+  onSelect
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [allBlueprints, setAllBlueprints] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const debounceRef = useRef();
+  const loadBlueprints = useCallback(async () => {
+    if (loaded) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/printify-catalog?action=blueprints");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setAllBlueprints(data);
+          setLoaded(true);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load blueprints:", err);
+    }
+    setLoading(false);
+  }, [loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    if (!query.trim()) {
+      setResults([]);
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const q = query.toLowerCase();
+      const filtered = allBlueprints.filter(
+        (bp) => {
+          var _a2, _b, _c;
+          return ((_a2 = bp.title) == null ? void 0 : _a2.toLowerCase().includes(q)) || ((_b = bp.brand) == null ? void 0 : _b.toLowerCase().includes(q)) || ((_c = bp.model) == null ? void 0 : _c.toLowerCase().includes(q)) || String(bp.id).includes(q);
+        }
+      );
+      setResults(filtered.slice(0, 20));
+    }, 200);
+  }, [query, allBlueprints, loaded]);
+  return /* @__PURE__ */ jsxs(BlockStack, { gap: "300", children: [
+    /* @__PURE__ */ jsx(
+      TextField,
+      {
+        label: "Search Printify Catalog",
+        value: query,
+        onChange: (val) => setQuery(val),
+        onFocus: loadBlueprints,
+        placeholder: "Type to search (e.g., 'tote bag', 'comfort colors', 'bella canvas')...",
+        autoComplete: "off",
+        connectedRight: loading ? /* @__PURE__ */ jsx(Spinner, { size: "small" }) : void 0
+      }
+    ),
+    !loaded && !loading && /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "Click the search field to load the Printify catalog (1300+ products)" }),
+    loaded && query && results.length === 0 && /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", tone: "subdued", children: [
+      'No results for "',
+      query,
+      '"'
+    ] }),
+    results.length > 0 && /* @__PURE__ */ jsx("div", { style: { maxHeight: "400px", overflowY: "auto", border: "1px solid #ddd", borderRadius: "8px" }, children: results.map((bp) => {
+      var _a2;
+      return /* @__PURE__ */ jsxs(
+        "div",
+        {
+          onClick: () => onSelect(bp),
+          style: {
+            padding: "12px 16px",
+            borderBottom: "1px solid #eee",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px"
+          },
+          onMouseEnter: (e) => e.currentTarget.style.backgroundColor = "#f5f5f5",
+          onMouseLeave: (e) => e.currentTarget.style.backgroundColor = "white",
+          children: [
+            ((_a2 = bp.images) == null ? void 0 : _a2[0]) && /* @__PURE__ */ jsx(
+              "img",
+              {
+                src: bp.images[0],
+                alt: bp.title,
+                style: { width: "48px", height: "48px", objectFit: "contain", borderRadius: "4px" }
+              }
+            ),
+            /* @__PURE__ */ jsxs("div", { style: { flex: 1 }, children: [
+              /* @__PURE__ */ jsx("div", { style: { fontWeight: 600, fontSize: "14px" }, children: bp.title }),
+              /* @__PURE__ */ jsxs("div", { style: { fontSize: "12px", color: "#666" }, children: [
+                bp.brand,
+                " · ",
+                bp.model,
+                " · ID #",
+                bp.id
+              ] })
+            ] })
+          ]
+        },
+        bp.id
+      );
+    }) })
+  ] });
+}
+function PrintifyImportPage() {
+  var _a2;
+  const { existingBases } = useLoaderData();
+  const actionData = useActionData();
+  const submit = useSubmit();
+  const navigation = useNavigation();
+  const isSubmitting = navigation.state !== "idle";
+  const [selectedBlueprint, setSelectedBlueprint] = useState(null);
+  const [providers, setProviders] = useState([]);
+  const [selectedProviderId, setSelectedProviderId] = useState("");
+  const [variants, setVariants] = useState([]);
+  const [loadingProviders, setLoadingProviders] = useState(false);
+  const [loadingVariants, setLoadingVariants] = useState(false);
+  const [category, setCategory] = useState("accessory");
+  const isAlreadyImported = selectedBlueprint ? existingBases.some((b) => b.printifyBlueprintId === selectedBlueprint.id) : false;
+  const handleSelectBlueprint = useCallback(async (bp) => {
+    var _a3;
+    setSelectedBlueprint(bp);
+    setProviders([]);
+    setSelectedProviderId("");
+    setVariants([]);
+    setLoadingProviders(true);
+    const title = ((_a3 = bp.title) == null ? void 0 : _a3.toLowerCase()) || "";
+    if (title.includes("tote") || title.includes("bag") || title.includes("pouch")) {
+      setCategory("bag");
+    } else if (title.includes("hat") || title.includes("cap") || title.includes("beanie")) {
+      setCategory("hat");
+    } else if (title.includes("shirt") || title.includes("tee")) {
+      setCategory("shirt");
+    } else if (title.includes("hoodie") || title.includes("sweatshirt")) {
+      setCategory("hoodie");
+    } else {
+      setCategory("accessory");
+    }
+    try {
+      const res = await fetch(`/api/printify-catalog?action=providers&id=${bp.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setProviders(data);
+          if (data.length === 1) {
+            setSelectedProviderId(String(data[0].id));
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load providers:", err);
+    }
+    setLoadingProviders(false);
+  }, []);
+  useEffect(() => {
+    if (!selectedBlueprint || !selectedProviderId) return;
+    const loadVariants = async () => {
+      setLoadingVariants(true);
+      try {
+        const res = await fetch(
+          `/api/printify-catalog?action=variants&blueprint_id=${selectedBlueprint.id}&provider_id=${selectedProviderId}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.variants) {
+            setVariants(data.variants);
+          } else if (Array.isArray(data)) {
+            setVariants(data);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load variants:", err);
+      }
+      setLoadingVariants(false);
+    };
+    loadVariants();
+  }, [selectedBlueprint, selectedProviderId]);
+  const handleImport = useCallback(() => {
+    if (!selectedBlueprint || !selectedProviderId) return;
+    const provider = providers.find((p) => String(p.id) === selectedProviderId);
+    const fd = new FormData();
+    fd.set("intent", "import_blueprint");
+    fd.set("blueprintId", String(selectedBlueprint.id));
+    fd.set("providerId", selectedProviderId);
+    fd.set("blueprintTitle", selectedBlueprint.title);
+    fd.set("blueprintBrand", selectedBlueprint.brand || "");
+    fd.set("blueprintModel", selectedBlueprint.model || "");
+    fd.set("blueprintImages", JSON.stringify(selectedBlueprint.images || []));
+    fd.set("category", category);
+    fd.set("variants", JSON.stringify(variants));
+    fd.set("providerTitle", (provider == null ? void 0 : provider.title) || "");
+    submit(fd, { method: "post" });
+  }, [selectedBlueprint, selectedProviderId, providers, variants, category, submit]);
+  const uniqueColors = new Set(
+    variants.map((v) => {
+      var _a3, _b, _c;
+      return ((_a3 = v.options) == null ? void 0 : _a3.color) || ((_c = (_b = v.title) == null ? void 0 : _b.split(" / ")) == null ? void 0 : _c[0]) || v.title;
+    })
+  );
+  return /* @__PURE__ */ jsxs(Page, { children: [
+    /* @__PURE__ */ jsx(TitleBar, { title: "Import from Printify" }),
+    /* @__PURE__ */ jsx(Layout, { children: /* @__PURE__ */ jsx(Layout.Section, { children: /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
+      /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
+        /* @__PURE__ */ jsx(Text, { as: "h2", variant: "headingMd", children: "Search Printify Catalog" }),
+        /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "Search for a product in the Printify catalog to import it as a product base. This will create the product base configuration with all variants and provider mappings." }),
+        /* @__PURE__ */ jsx(BlueprintSearch, { onSelect: handleSelectBlueprint })
+      ] }) }),
+      selectedBlueprint && /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
+        /* @__PURE__ */ jsxs(InlineStack, { gap: "400", blockAlign: "start", children: [
+          ((_a2 = selectedBlueprint.images) == null ? void 0 : _a2[0]) && /* @__PURE__ */ jsx(
+            "img",
+            {
+              src: selectedBlueprint.images[0],
+              alt: selectedBlueprint.title,
+              style: {
+                width: "120px",
+                height: "120px",
+                objectFit: "contain",
+                borderRadius: "8px",
+                border: "1px solid #eee"
+              }
+            }
+          ),
+          /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
+            /* @__PURE__ */ jsx(Text, { as: "h2", variant: "headingLg", children: selectedBlueprint.title }),
+            /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", tone: "subdued", children: [
+              selectedBlueprint.brand,
+              " · ",
+              selectedBlueprint.model,
+              " · Blueprint #",
+              selectedBlueprint.id
+            ] }),
+            isAlreadyImported && /* @__PURE__ */ jsx(Badge, { tone: "warning", children: "Already imported" })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx(Divider, {}),
+        /* @__PURE__ */ jsx(
+          Select,
+          {
+            label: "Product Category",
+            options: [
+              { label: "Shirt", value: "shirt" },
+              { label: "Hoodie", value: "hoodie" },
+              { label: "Hat", value: "hat" },
+              { label: "Bag", value: "bag" },
+              { label: "Accessory", value: "accessory" }
+            ],
+            value: category,
+            onChange: setCategory
+          }
+        ),
+        /* @__PURE__ */ jsx(Divider, {}),
+        /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
+          /* @__PURE__ */ jsx(Text, { as: "h3", variant: "headingMd", children: "Print Provider" }),
+          loadingProviders ? /* @__PURE__ */ jsxs(InlineStack, { gap: "200", blockAlign: "center", children: [
+            /* @__PURE__ */ jsx(Spinner, { size: "small" }),
+            /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", children: "Loading providers..." })
+          ] }) : providers.length === 0 ? /* @__PURE__ */ jsx(Banner, { tone: "warning", children: /* @__PURE__ */ jsx("p", { children: "No print providers found for this blueprint." }) }) : /* @__PURE__ */ jsx(
+            Select,
+            {
+              label: "Select a print provider",
+              options: [
+                { label: "Choose a provider...", value: "" },
+                ...providers.map((p) => ({
+                  label: `${p.title} (#${p.id})`,
+                  value: String(p.id)
+                }))
+              ],
+              value: selectedProviderId,
+              onChange: setSelectedProviderId
+            }
+          )
+        ] }),
+        selectedProviderId && /* @__PURE__ */ jsxs(Fragment, { children: [
+          /* @__PURE__ */ jsx(Divider, {}),
+          /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
+            /* @__PURE__ */ jsx(Text, { as: "h3", variant: "headingMd", children: "Variants" }),
+            loadingVariants ? /* @__PURE__ */ jsxs(InlineStack, { gap: "200", blockAlign: "center", children: [
+              /* @__PURE__ */ jsx(Spinner, { size: "small" }),
+              /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", children: "Loading variants..." })
+            ] }) : variants.length === 0 ? /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "No variants found" }) : /* @__PURE__ */ jsxs(BlockStack, { gap: "200", children: [
+              /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", children: [
+                variants.length,
+                " total variants · ",
+                uniqueColors.size,
+                " unique colors"
+              ] }),
+              /* @__PURE__ */ jsxs(InlineStack, { gap: "200", wrap: true, children: [
+                Array.from(uniqueColors).slice(0, 30).map((color) => /* @__PURE__ */ jsx(Badge, { children: color }, color)),
+                uniqueColors.size > 30 && /* @__PURE__ */ jsx(Badge, { tone: "info", children: `+${uniqueColors.size - 30} more` })
+              ] })
+            ] })
+          ] })
+        ] }),
+        selectedProviderId && variants.length > 0 && /* @__PURE__ */ jsxs(Fragment, { children: [
+          /* @__PURE__ */ jsx(Divider, {}),
+          /* @__PURE__ */ jsx(InlineStack, { align: "end", children: /* @__PURE__ */ jsx(
+            Button,
+            {
+              variant: "primary",
+              onClick: handleImport,
+              loading: isSubmitting,
+              disabled: isAlreadyImported,
+              children: isAlreadyImported ? "Already Imported" : `Import as Product Base`
+            }
+          ) })
+        ] })
+      ] }) }),
+      actionData && "error" in actionData && /* @__PURE__ */ jsx(Banner, { tone: "critical", children: /* @__PURE__ */ jsx("p", { children: actionData.error }) }),
+      actionData && "success" in actionData && /* @__PURE__ */ jsxs(Banner, { tone: "success", children: [
+        /* @__PURE__ */ jsx("p", { children: actionData.message }),
+        /* @__PURE__ */ jsxs("p", { children: [
+          "Go to the ",
+          /* @__PURE__ */ jsx("a", { href: "/app/mockup-manager", children: "Mockup Manager" }),
+          " to upload mockup images and set print areas."
+        ] })
+      ] })
+    ] }) }) })
+  ] });
+}
+const route20 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  action: action$2,
+  default: PrintifyImportPage,
+  loader: loader$3
+}, Symbol.toStringTag, { value: "Module" }));
+const loader$2 = async ({ request }) => {
+  const { session } = await authenticate.admin(request);
+  const productBases = await prisma.productBaseDef.findMany({
+    where: { shop: session.shop },
+    include: {
+      variants: { orderBy: { sortOrder: "asc" } }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+  return json({ productBases, shop: session.shop });
+};
+const action$1 = async ({ request }) => {
+  var _a2, _b, _c, _d, _e, _f, _g;
+  const { session, admin } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+  try {
+    if (intent === "update_print_area") {
+      const baseId = formData.get("baseId");
+      const x = parseFloat(formData.get("x"));
+      const y = parseFloat(formData.get("y"));
+      const w = parseFloat(formData.get("w"));
+      const h = parseFloat(formData.get("h"));
+      await prisma.productBaseDef.update({
+        where: { id: baseId },
+        data: {
+          defaultPrintAreaX: x,
+          defaultPrintAreaY: y,
+          defaultPrintAreaWidth: w,
+          defaultPrintAreaHeight: h
+        }
+      });
+      return json({ success: true });
+    }
+    if (intent === "update_variant_print_area") {
+      const variantId = formData.get("variantId");
+      const x = parseFloat(formData.get("x"));
+      const y = parseFloat(formData.get("y"));
+      const w = parseFloat(formData.get("w"));
+      const h = parseFloat(formData.get("h"));
+      await prisma.productBaseVariant.update({
+        where: { id: variantId },
+        data: {
+          printAreaX: x,
+          printAreaY: y,
+          printAreaWidth: w,
+          printAreaHeight: h
+        }
+      });
+      return json({ success: true });
+    }
+    if (intent === "upload_variant_mockup") {
+      const variantId = formData.get("variantId");
+      const baseId = formData.get("baseId");
+      const fileBase64 = formData.get("fileBase64");
+      const fileName = formData.get("fileName");
+      const fileSize = formData.get("fileSize");
+      const mimeType = formData.get("mimeType");
+      const setAsDefault = formData.get("setAsDefault") === "true";
+      const stagedRes = await admin.graphql(
+        `#graphql
+        mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
+          stagedUploadsCreate(input: $input) {
+            stagedTargets {
+              url
+              resourceUrl
+              parameters { name value }
+            }
+            userErrors { field message }
+          }
+        }`,
+        {
+          variables: {
+            input: [{
+              filename: fileName,
+              fileSize,
+              mimeType,
+              resource: "FILE",
+              httpMethod: "POST"
+            }]
+          }
+        }
+      );
+      const stagedData = await stagedRes.json();
+      const target = (_c = (_b = (_a2 = stagedData.data) == null ? void 0 : _a2.stagedUploadsCreate) == null ? void 0 : _b.stagedTargets) == null ? void 0 : _c[0];
+      if (!target) {
+        return json({ error: "Staged upload failed" }, { status: 500 });
+      }
+      const uploadForm = new FormData();
+      for (const param of target.parameters) {
+        uploadForm.append(param.name, param.value);
+      }
+      const base64Data = fileBase64.split(",").pop() || fileBase64;
+      const binaryStr = atob(base64Data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: mimeType });
+      uploadForm.append("file", blob, fileName);
+      const uploadRes = await fetch(target.url, {
+        method: "POST",
+        body: uploadForm
+      });
+      if (!uploadRes.ok) {
+        return json({ error: `Upload failed: ${uploadRes.status}` }, { status: 500 });
+      }
+      const fileCreateRes = await admin.graphql(
+        `#graphql
+        mutation fileCreate($files: [FileCreateInput!]!) {
+          fileCreate(files: $files) {
+            files {
+              id
+              ... on MediaImage { image { url } }
+              ... on GenericFile { url }
+            }
+            userErrors { field message }
+          }
+        }`,
+        {
+          variables: {
+            files: [{
+              alt: `Mockup - ${variantId}`,
+              contentType: "IMAGE",
+              originalSource: target.resourceUrl
+            }]
+          }
+        }
+      );
+      const fileData = await fileCreateRes.json();
+      const createdFile = (_f = (_e = (_d = fileData.data) == null ? void 0 : _d.fileCreate) == null ? void 0 : _e.files) == null ? void 0 : _f[0];
+      const imageUrl = ((_g = createdFile == null ? void 0 : createdFile.image) == null ? void 0 : _g.url) || (createdFile == null ? void 0 : createdFile.url) || target.resourceUrl;
+      await prisma.productBaseVariant.update({
+        where: { id: variantId },
+        data: { mockupImageUrl: imageUrl }
+      });
+      if (setAsDefault) {
+        await prisma.productBaseDef.update({
+          where: { id: baseId },
+          data: { defaultMockupUrl: imageUrl }
+        });
+      }
+      return json({ success: true, imageUrl });
+    }
+    if (intent === "set_variant_mockup_url") {
+      const variantId = formData.get("variantId");
+      const baseId = formData.get("baseId");
+      const imageUrl = formData.get("imageUrl");
+      const setAsDefault = formData.get("setAsDefault") === "true";
+      await prisma.productBaseVariant.update({
+        where: { id: variantId },
+        data: { mockupImageUrl: imageUrl }
+      });
+      if (setAsDefault) {
+        await prisma.productBaseDef.update({
+          where: { id: baseId },
+          data: { defaultMockupUrl: imageUrl }
+        });
+      }
+      return json({ success: true });
+    }
+    if (intent === "delete_base") {
+      const baseId = formData.get("baseId");
+      await prisma.productBaseVariant.deleteMany({ where: { productBaseId: baseId } });
+      await prisma.productBaseDef.delete({ where: { id: baseId } });
+      return json({ success: true });
+    }
+    if (intent === "create_base") {
+      const slug = formData.get("slug");
+      const name = formData.get("name");
+      const brand = formData.get("brand");
+      const modelName = formData.get("model");
+      const category = formData.get("category");
+      const fulfillmentProvider = formData.get("fulfillmentProvider");
+      const printifyBlueprintId = parseInt(formData.get("printifyBlueprintId")) || null;
+      const printifyProviderId = parseInt(formData.get("printifyProviderId")) || null;
+      const base = await prisma.productBaseDef.create({
+        data: {
+          shop: session.shop,
+          slug,
+          name,
+          brand,
+          model: modelName,
+          category,
+          fulfillmentProvider,
+          printifyBlueprintId,
+          printifyProviderId
+        }
+      });
+      return json({ success: true, baseId: base.id });
+    }
+    if (intent === "add_variant") {
+      const baseId = formData.get("baseId");
+      const color = formData.get("color");
+      const colorHex = formData.get("colorHex");
+      const size = formData.get("size") || null;
+      const printifyVariantId = parseInt(formData.get("printifyVariantId")) || null;
+      await prisma.productBaseVariant.create({
+        data: {
+          productBaseId: baseId,
+          color,
+          colorHex,
+          size,
+          printifyVariantId
+        }
+      });
+      return json({ success: true });
+    }
+    return json({ error: "Unknown intent" }, { status: 400 });
+  } catch (error) {
+    console.error("[mockup-manager] Action error:", error);
+    return json({ error: error.message }, { status: 500 });
+  }
+};
+function PrintAreaEditor({
+  mockupUrl,
+  printArea,
+  onPrintAreaChange,
+  width = 400
+}) {
+  const containerRef = useRef(null);
+  const [dragging, setDragging] = useState(false);
+  const [resizing, setResizing] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [imgSize, setImgSize] = useState({ w: width, h: width });
+  const handleImageLoad = useCallback((e) => {
+    const img = e.currentTarget;
+    const aspect = img.naturalWidth / img.naturalHeight;
+    const h = width / aspect;
+    setImgSize({ w: width, h });
+  }, [width]);
+  const getRelativePos = useCallback((e) => {
+    if (!containerRef.current) return { x: 0, y: 0 };
+    const rect = containerRef.current.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) / rect.width * 100,
+      y: (e.clientY - rect.top) / rect.height * 100
+    };
+  }, []);
+  const handleMouseDown = useCallback((e, mode2) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const pos = getRelativePos(e);
+    setDragStart(pos);
+    if (mode2 === "drag") setDragging(true);
+    else setResizing(true);
+  }, [getRelativePos]);
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!dragging && !resizing) return;
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width * 100;
+      const y = (e.clientY - rect.top) / rect.height * 100;
+      const dx = x - dragStart.x;
+      const dy = y - dragStart.y;
+      if (dragging) {
+        const newX = Math.max(0, Math.min(100 - printArea.w, printArea.x + dx));
+        const newY = Math.max(0, Math.min(100 - printArea.h, printArea.y + dy));
+        onPrintAreaChange({ ...printArea, x: newX, y: newY });
+        setDragStart({ x, y });
+      } else if (resizing) {
+        const newW = Math.max(10, Math.min(100 - printArea.x, printArea.w + dx));
+        const newH = Math.max(10, Math.min(100 - printArea.y, printArea.h + dy));
+        onPrintAreaChange({ ...printArea, w: newW, h: newH });
+        setDragStart({ x, y });
+      }
+    };
+    const handleMouseUp = () => {
+      setDragging(false);
+      setResizing(false);
+    };
+    if (dragging || resizing) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [dragging, resizing, dragStart, printArea, onPrintAreaChange]);
+  return /* @__PURE__ */ jsxs(
+    "div",
+    {
+      ref: containerRef,
+      style: {
+        position: "relative",
+        width: `${width}px`,
+        maxWidth: "100%",
+        background: "#f0f0f0",
+        borderRadius: "8px",
+        overflow: "hidden",
+        cursor: dragging ? "grabbing" : "default",
+        userSelect: "none"
+      },
+      children: [
+        mockupUrl ? /* @__PURE__ */ jsx(
+          "img",
+          {
+            src: mockupUrl,
+            alt: "Product mockup",
+            onLoad: handleImageLoad,
+            style: { width: "100%", display: "block" },
+            draggable: false
+          }
+        ) : /* @__PURE__ */ jsx("div", { style: {
+          width: "100%",
+          height: "300px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#999",
+          fontSize: "14px"
+        }, children: "No mockup image — upload one below" }),
+        /* @__PURE__ */ jsxs(
+          "div",
+          {
+            onMouseDown: (e) => handleMouseDown(e, "drag"),
+            style: {
+              position: "absolute",
+              left: `${printArea.x}%`,
+              top: `${printArea.y}%`,
+              width: `${printArea.w}%`,
+              height: `${printArea.h}%`,
+              border: "2px dashed rgba(255, 0, 0, 0.7)",
+              backgroundColor: "rgba(255, 0, 0, 0.08)",
+              cursor: dragging ? "grabbing" : "grab",
+              boxSizing: "border-box"
+            },
+            children: [
+              /* @__PURE__ */ jsx("div", { style: {
+                position: "absolute",
+                top: "-20px",
+                left: "0",
+                fontSize: "11px",
+                color: "red",
+                fontWeight: "bold",
+                whiteSpace: "nowrap",
+                background: "rgba(255,255,255,0.8)",
+                padding: "1px 4px",
+                borderRadius: "2px"
+              }, children: "Print Area" }),
+              /* @__PURE__ */ jsx(
+                "div",
+                {
+                  onMouseDown: (e) => handleMouseDown(e, "resize"),
+                  style: {
+                    position: "absolute",
+                    right: "-5px",
+                    bottom: "-5px",
+                    width: "10px",
+                    height: "10px",
+                    backgroundColor: "red",
+                    cursor: "nwse-resize",
+                    borderRadius: "2px"
+                  }
+                }
+              )
+            ]
+          }
+        )
+      ]
+    }
+  );
+}
+function MockupManagerPage() {
+  const { productBases } = useLoaderData();
+  const actionData = useActionData();
+  const submit = useSubmit();
+  const navigation = useNavigation();
+  const isLoading = navigation.state !== "idle";
+  const [selectedBaseId, setSelectedBaseId] = useState(null);
+  const [selectedVariantId, setSelectedVariantId] = useState(null);
+  const [printArea, setPrintArea] = useState({ x: 20, y: 20, w: 60, h: 60 });
+  const [uploadingVariantId, setUploadingVariantId] = useState(null);
+  const selectedBase = productBases.find((b) => b.id === selectedBaseId);
+  const selectedVariant = selectedBase == null ? void 0 : selectedBase.variants.find((v) => v.id === selectedVariantId);
+  const handleSelectBase = useCallback((baseId) => {
+    const base = productBases.find((b) => b.id === baseId);
+    if (base) {
+      setSelectedBaseId(baseId);
+      setPrintArea({
+        x: base.defaultPrintAreaX,
+        y: base.defaultPrintAreaY,
+        w: base.defaultPrintAreaWidth,
+        h: base.defaultPrintAreaHeight
+      });
+      if (base.variants.length > 0) {
+        setSelectedVariantId(base.variants[0].id);
+        const v = base.variants[0];
+        if (v.printAreaX != null) {
+          setPrintArea({
+            x: v.printAreaX,
+            y: v.printAreaY,
+            w: v.printAreaWidth,
+            h: v.printAreaHeight
+          });
+        }
+      } else {
+        setSelectedVariantId(null);
+      }
+    }
+  }, [productBases]);
+  const handleSelectVariant = useCallback((variantId) => {
+    setSelectedVariantId(variantId);
+    const variant = selectedBase == null ? void 0 : selectedBase.variants.find((v) => v.id === variantId);
+    if (variant) {
+      if (variant.printAreaX != null) {
+        setPrintArea({
+          x: variant.printAreaX,
+          y: variant.printAreaY,
+          w: variant.printAreaWidth,
+          h: variant.printAreaHeight
+        });
+      } else if (selectedBase) {
+        setPrintArea({
+          x: selectedBase.defaultPrintAreaX,
+          y: selectedBase.defaultPrintAreaY,
+          w: selectedBase.defaultPrintAreaWidth,
+          h: selectedBase.defaultPrintAreaHeight
+        });
+      }
+    }
+  }, [selectedBase]);
+  const handleSavePrintArea = useCallback(() => {
+    if (selectedVariantId) {
+      const fd = new FormData();
+      fd.set("intent", "update_variant_print_area");
+      fd.set("variantId", selectedVariantId);
+      fd.set("x", String(Math.round(printArea.x * 10) / 10));
+      fd.set("y", String(Math.round(printArea.y * 10) / 10));
+      fd.set("w", String(Math.round(printArea.w * 10) / 10));
+      fd.set("h", String(Math.round(printArea.h * 10) / 10));
+      submit(fd, { method: "post" });
+    } else if (selectedBaseId) {
+      const fd = new FormData();
+      fd.set("intent", "update_print_area");
+      fd.set("baseId", selectedBaseId);
+      fd.set("x", String(Math.round(printArea.x * 10) / 10));
+      fd.set("y", String(Math.round(printArea.y * 10) / 10));
+      fd.set("w", String(Math.round(printArea.w * 10) / 10));
+      fd.set("h", String(Math.round(printArea.h * 10) / 10));
+      submit(fd, { method: "post" });
+    }
+  }, [selectedBaseId, selectedVariantId, printArea, submit]);
+  const handleMockupUpload = useCallback(async (variantId, file) => {
+    setUploadingVariantId(variantId);
+    const reader = new FileReader();
+    reader.onload = () => {
+      var _a2;
+      const base64 = reader.result;
+      const fd = new FormData();
+      fd.set("intent", "upload_variant_mockup");
+      fd.set("variantId", variantId);
+      fd.set("baseId", selectedBaseId || "");
+      fd.set("fileBase64", base64);
+      fd.set("fileName", file.name);
+      fd.set("fileSize", String(file.size));
+      fd.set("mimeType", file.type);
+      fd.set("setAsDefault", ((_a2 = selectedBase == null ? void 0 : selectedBase.variants[0]) == null ? void 0 : _a2.id) === variantId ? "true" : "false");
+      submit(fd, { method: "post" });
+      setUploadingVariantId(null);
+    };
+    reader.readAsDataURL(file);
+  }, [selectedBaseId, selectedBase, submit]);
+  const handleDeleteBase = useCallback((baseId) => {
+    if (confirm("Delete this product base and all its variants?")) {
+      const fd = new FormData();
+      fd.set("intent", "delete_base");
+      fd.set("baseId", baseId);
+      submit(fd, { method: "post" });
+      if (selectedBaseId === baseId) {
+        setSelectedBaseId(null);
+        setSelectedVariantId(null);
+      }
+    }
+  }, [selectedBaseId, submit]);
+  const currentMockupUrl = (selectedVariant == null ? void 0 : selectedVariant.mockupImageUrl) || (selectedBase == null ? void 0 : selectedBase.defaultMockupUrl) || "";
+  return /* @__PURE__ */ jsxs(Page, { children: [
+    /* @__PURE__ */ jsx(TitleBar, { title: "Mockup & Print Area Manager" }),
+    /* @__PURE__ */ jsxs(Layout, { children: [
+      /* @__PURE__ */ jsx(Layout.Section, { variant: "oneThird", children: /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
+        /* @__PURE__ */ jsx(Text, { as: "h2", variant: "headingMd", children: "Product Bases" }),
+        productBases.length === 0 ? /* @__PURE__ */ jsx(Banner, { tone: "info", children: /* @__PURE__ */ jsx("p", { children: "No product bases yet. Import from Printify catalog or create one manually." }) }) : /* @__PURE__ */ jsx(BlockStack, { gap: "200", children: productBases.map((base) => /* @__PURE__ */ jsx(
+          "div",
+          {
+            onClick: () => handleSelectBase(base.id),
+            style: {
+              padding: "12px",
+              borderRadius: "8px",
+              border: selectedBaseId === base.id ? "2px solid #333" : "1px solid #ddd",
+              cursor: "pointer",
+              background: selectedBaseId === base.id ? "#f5f5f5" : "white"
+            },
+            children: /* @__PURE__ */ jsxs(InlineStack, { align: "space-between", blockAlign: "center", children: [
+              /* @__PURE__ */ jsxs(BlockStack, { gap: "100", children: [
+                /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodyMd", fontWeight: "bold", children: base.name }),
+                /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", tone: "subdued", children: [
+                  base.brand,
+                  " ",
+                  base.model,
+                  " · ",
+                  base.variants.length,
+                  " variants"
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs(InlineStack, { gap: "200", children: [
+                /* @__PURE__ */ jsx(Badge, { tone: base.fulfillmentProvider === "printify" ? "info" : "success", children: base.fulfillmentProvider }),
+                /* @__PURE__ */ jsx(
+                  Button,
+                  {
+                    variant: "plain",
+                    tone: "critical",
+                    onClick: () => {
+                      handleDeleteBase(base.id);
+                    },
+                    children: "Delete"
+                  }
+                )
+              ] })
+            ] })
+          },
+          base.id
+        )) })
+      ] }) }) }),
+      /* @__PURE__ */ jsx(Layout.Section, { children: selectedBase ? /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
+        /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
+          /* @__PURE__ */ jsxs(InlineStack, { align: "space-between", blockAlign: "center", children: [
+            /* @__PURE__ */ jsxs(Text, { as: "h2", variant: "headingMd", children: [
+              selectedBase.name,
+              " — Print Area"
+            ] }),
+            /* @__PURE__ */ jsx(
+              Button,
+              {
+                variant: "primary",
+                onClick: handleSavePrintArea,
+                loading: isLoading,
+                children: "Save Print Area"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "Drag the red rectangle to position the print area. Drag the bottom-right corner to resize." }),
+          /* @__PURE__ */ jsx(
+            PrintAreaEditor,
+            {
+              mockupUrl: currentMockupUrl,
+              printArea,
+              onPrintAreaChange: setPrintArea,
+              width: 450
+            }
+          ),
+          /* @__PURE__ */ jsx(InlineStack, { gap: "300", children: /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", children: [
+            "X: ",
+            printArea.x.toFixed(1),
+            "% · Y: ",
+            printArea.y.toFixed(1),
+            "% · W: ",
+            printArea.w.toFixed(1),
+            "% · H: ",
+            printArea.h.toFixed(1),
+            "%"
+          ] }) })
+        ] }) }),
+        /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, { gap: "400", children: [
+          /* @__PURE__ */ jsx(Text, { as: "h2", variant: "headingMd", children: "Variant Mockups" }),
+          /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", tone: "subdued", children: "Upload a mockup image for each color variant. The print area position can be fine-tuned per variant." }),
+          selectedBase.variants.length === 0 ? /* @__PURE__ */ jsx(Banner, { tone: "warning", children: /* @__PURE__ */ jsx("p", { children: "No variants configured. Add variants via Printify Import or manually." }) }) : /* @__PURE__ */ jsx(BlockStack, { gap: "300", children: selectedBase.variants.map((variant) => /* @__PURE__ */ jsx(
+            "div",
+            {
+              onClick: () => handleSelectVariant(variant.id),
+              style: {
+                padding: "12px",
+                borderRadius: "8px",
+                border: selectedVariantId === variant.id ? "2px solid #333" : "1px solid #eee",
+                cursor: "pointer",
+                background: selectedVariantId === variant.id ? "#f9f9f9" : "white"
+              },
+              children: /* @__PURE__ */ jsxs(InlineStack, { gap: "300", blockAlign: "center", children: [
+                /* @__PURE__ */ jsx("div", { style: {
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "50%",
+                  backgroundColor: variant.colorHex,
+                  border: "1px solid #ccc",
+                  flexShrink: 0
+                } }),
+                /* @__PURE__ */ jsxs(BlockStack, { gap: "100", children: [
+                  /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodyMd", fontWeight: "semibold", children: [
+                    variant.color,
+                    variant.size ? ` (${variant.size})` : ""
+                  ] }),
+                  /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", tone: "subdued", children: [
+                    variant.mockupImageUrl ? "Has mockup" : "No mockup",
+                    variant.printifyVariantId ? ` · Printify #${variant.printifyVariantId}` : ""
+                  ] })
+                ] }),
+                variant.mockupImageUrl && /* @__PURE__ */ jsx(
+                  Thumbnail,
+                  {
+                    source: variant.mockupImageUrl,
+                    alt: variant.color,
+                    size: "small"
+                  }
+                ),
+                /* @__PURE__ */ jsx("div", { style: { marginLeft: "auto" }, children: /* @__PURE__ */ jsxs("label", { style: {
+                  cursor: "pointer",
+                  padding: "6px 12px",
+                  background: "#f0f0f0",
+                  borderRadius: "6px",
+                  fontSize: "13px"
+                }, children: [
+                  uploadingVariantId === variant.id ? /* @__PURE__ */ jsx(Spinner, { size: "small" }) : variant.mockupImageUrl ? "Replace" : "Upload",
+                  /* @__PURE__ */ jsx(
+                    "input",
+                    {
+                      type: "file",
+                      accept: "image/png,image/jpeg,image/webp",
+                      style: { display: "none" },
+                      onChange: (e) => {
+                        var _a2;
+                        const file = (_a2 = e.target.files) == null ? void 0 : _a2[0];
+                        if (file) handleMockupUpload(variant.id, file);
+                      }
+                    }
+                  )
+                ] }) })
+              ] })
+            },
+            variant.id
+          )) })
+        ] }) }),
+        /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, { gap: "300", children: [
+          /* @__PURE__ */ jsx(Text, { as: "h2", variant: "headingMd", children: "Product Base Info" }),
+          /* @__PURE__ */ jsxs(BlockStack, { gap: "100", children: [
+            /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", children: [
+              /* @__PURE__ */ jsx("strong", { children: "Slug:" }),
+              " ",
+              selectedBase.slug
+            ] }),
+            /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", children: [
+              /* @__PURE__ */ jsx("strong", { children: "Brand:" }),
+              " ",
+              selectedBase.brand
+            ] }),
+            /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", children: [
+              /* @__PURE__ */ jsx("strong", { children: "Model:" }),
+              " ",
+              selectedBase.model
+            ] }),
+            /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", children: [
+              /* @__PURE__ */ jsx("strong", { children: "Category:" }),
+              " ",
+              selectedBase.category
+            ] }),
+            /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", children: [
+              /* @__PURE__ */ jsx("strong", { children: "Provider:" }),
+              " ",
+              selectedBase.fulfillmentProvider
+            ] }),
+            selectedBase.printifyBlueprintId && /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", children: [
+              /* @__PURE__ */ jsx("strong", { children: "Printify Blueprint:" }),
+              " #",
+              selectedBase.printifyBlueprintId
+            ] }),
+            selectedBase.printifyProviderId && /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", children: [
+              /* @__PURE__ */ jsx("strong", { children: "Printify Provider:" }),
+              " #",
+              selectedBase.printifyProviderId
+            ] }),
+            /* @__PURE__ */ jsxs(Text, { as: "p", variant: "bodySm", children: [
+              /* @__PURE__ */ jsx("strong", { children: "Print File:" }),
+              " ",
+              selectedBase.printFileWidth,
+              "x",
+              selectedBase.printFileHeight,
+              "px @ ",
+              selectedBase.printFileDpi,
+              "dpi"
+            ] })
+          ] })
+        ] }) })
+      ] }) : /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(
+        EmptyState,
+        {
+          heading: "Select a product base",
+          image: "",
+          children: [
+            /* @__PURE__ */ jsx("p", { children: "Choose a product base from the list to manage its mockup images and print area positioning." }),
+            /* @__PURE__ */ jsxs("p", { children: [
+              "To add new product bases, use the ",
+              /* @__PURE__ */ jsx("strong", { children: "Printify Import" }),
+              " page."
+            ] })
+          ]
+        }
+      ) }) })
+    ] }),
+    actionData && "error" in actionData && /* @__PURE__ */ jsx("div", { style: { marginTop: "16px" }, children: /* @__PURE__ */ jsx(Banner, { tone: "critical", children: /* @__PURE__ */ jsx("p", { children: actionData.error }) }) }),
+    actionData && "success" in actionData && /* @__PURE__ */ jsx("div", { style: { marginTop: "16px" }, children: /* @__PURE__ */ jsx(Banner, { tone: "success", onDismiss: () => {
+    }, children: /* @__PURE__ */ jsx("p", { children: "Saved successfully!" }) }) })
+  ] });
+}
+const route21 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  action: action$1,
+  default: MockupManagerPage,
   loader: loader$2
 }, Symbol.toStringTag, { value: "Module" }));
 const LAYER_COLORS = {
@@ -3786,7 +5281,31 @@ function LayerEditor({
               ),
               /* @__PURE__ */ jsx("span", { style: { fontSize: 12, color: "#666" }, children: selectedLayer.defaultColor || "#000000" })
             ] })
-          ] })
+          ] }),
+          /* @__PURE__ */ jsx(Divider, {}),
+          /* @__PURE__ */ jsx(Text, { as: "p", variant: "bodySm", fontWeight: "semibold", children: "Mad Lib Configuration" }),
+          /* @__PURE__ */ jsx(
+            TextField,
+            {
+              label: "Mad Lib Template",
+              value: selectedLayer.madLibTemplate || "",
+              onChange: (val) => updateLayer(selectedLayerIndex, { madLibTemplate: val }),
+              autoComplete: "off",
+              multiline: 3,
+              helpText: "Use [1], [2], etc. for placeholders. e.g. 'Dear [1], you are [2]!'"
+            }
+          ),
+          /* @__PURE__ */ jsx(
+            TextField,
+            {
+              label: "Mad Lib Prompts (JSON array)",
+              value: selectedLayer.madLibPrompts || "",
+              onChange: (val) => updateLayer(selectedLayerIndex, { madLibPrompts: val }),
+              autoComplete: "off",
+              placeholder: '["Nickname", "Adjective"]',
+              helpText: 'Enter as a JSON array of strings: ["Prompt 1", "Prompt 2"]'
+            }
+          )
         ] }),
         selectedLayer.layerType === "fixed_image" && /* @__PURE__ */ jsxs(Fragment, { children: [
           /* @__PURE__ */ jsx(Divider, {}),
@@ -3901,7 +5420,9 @@ const action = async ({ request }) => {
               placeholder: layer.placeholder ?? null,
               defaultFont: layer.defaultFont ?? "script",
               defaultColor: layer.defaultColor ?? "#000000",
-              fixedImageUrl: layer.fixedImageUrl ?? null
+              fixedImageUrl: layer.fixedImageUrl ?? null,
+              madLibTemplate: layer.madLibTemplate ?? null,
+              madLibPrompts: layer.madLibPrompts ?? null
             }))
           }
         }
@@ -5150,7 +6671,7 @@ function ProductBasesPage() {
     )
   ] });
 }
-const route18 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route22 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   action,
   default: ProductBasesPage,
@@ -5216,7 +6737,7 @@ function Code({ children }) {
     }
   );
 }
-const route19 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route23 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: AdditionalPage
 }, Symbol.toStringTag, { value: "Module" }));
@@ -5291,7 +6812,7 @@ function Index() {
     /* @__PURE__ */ jsx(IndexTable.Cell, { children: /* @__PURE__ */ jsx(Text, { variant: "bodyMd", as: "span", children: order.monogramText }) }),
     /* @__PURE__ */ jsx(IndexTable.Cell, { children: /* @__PURE__ */ jsx(Text, { variant: "bodyMd", as: "span", children: order.monogramStyle }) }),
     /* @__PURE__ */ jsx(IndexTable.Cell, { children: /* @__PURE__ */ jsxs(InlineStack, { gap: "200", blockAlign: "center", children: [
-      threadColorSwatch(order.threadColor),
+      threadColorSwatch(order.threadColor || "#000000"),
       /* @__PURE__ */ jsx(Text, { variant: "bodyMd", as: "span", children: order.threadColor })
     ] }) }),
     /* @__PURE__ */ jsx(IndexTable.Cell, { children: statusBadge(order.status) }),
@@ -5349,12 +6870,12 @@ function Index() {
     ] }) })
   ] });
 }
-const route20 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route24 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: Index,
   loader
 }, Symbol.toStringTag, { value: "Module" }));
-const serverManifest = { "entry": { "module": "/assets/entry.client-D8gXOalM.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-CTSN4E9F.js"], "css": [] }, "routes": { "root": { "id": "root", "parentId": void 0, "path": "", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/root-CKC1ALrE.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-CTSN4E9F.js"], "css": [] }, "routes/api.register-printful-webhook": { "id": "routes/api.register-printful-webhook", "parentId": "root", "path": "api/register-printful-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.register-printful-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.register-printify-webhook": { "id": "routes/api.register-printify-webhook", "parentId": "root", "path": "api/register-printify-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.register-printify-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.app.scopes_update": { "id": "routes/webhooks.app.scopes_update", "parentId": "root", "path": "webhooks/app/scopes_update", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.app.scopes_update-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.test-printful-upload": { "id": "routes/api.test-printful-upload", "parentId": "root", "path": "api/test-printful-upload", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.test-printful-upload-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.app.uninstalled": { "id": "routes/webhooks.app.uninstalled", "parentId": "root", "path": "webhooks/app/uninstalled", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.app.uninstalled-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.orders.create": { "id": "routes/webhooks.orders.create", "parentId": "root", "path": "webhooks/orders/create", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.orders.create-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printful-webhook": { "id": "routes/api.printful-webhook", "parentId": "root", "path": "api/printful-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printful-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printify-webhook": { "id": "routes/api.printify-webhook", "parentId": "root", "path": "api/printify-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printify-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.debug-templates": { "id": "routes/api.debug-templates", "parentId": "root", "path": "api/debug-templates", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.debug-templates-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.print-files.$id": { "id": "routes/api.print-files.$id", "parentId": "root", "path": "api/print-files/:id", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.print-files._id-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.debug-orders": { "id": "routes/api.debug-orders", "parentId": "root", "path": "api/debug-orders", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.debug-orders-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.product-base": { "id": "routes/api.product-base", "parentId": "root", "path": "api/product-base", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.product-base-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.preview": { "id": "routes/api.preview", "parentId": "root", "path": "api/preview", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.preview-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/auth.login": { "id": "routes/auth.login", "parentId": "root", "path": "auth/login", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/route-DfJNNr_j.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/styles-vE5xW-ud.js", "/assets/components-CTSN4E9F.js", "/assets/Page-CF-lTqsZ.js", "/assets/FormLayout-1iHUuPJS.js", "/assets/context-Dsk7sDT6.js", "/assets/context-Eka27zlm.js"], "css": [] }, "routes/_index": { "id": "routes/_index", "parentId": "root", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/route-ChqqY-B4.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-CTSN4E9F.js"], "css": ["/assets/route-Xpdx9QZl.css"] }, "routes/auth.$": { "id": "routes/auth.$", "parentId": "root", "path": "auth/*", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/auth._-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/app": { "id": "routes/app", "parentId": "root", "path": "app", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": true, "module": "/assets/app-C7MbXDGK.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-CTSN4E9F.js", "/assets/styles-vE5xW-ud.js", "/assets/context-Dsk7sDT6.js", "/assets/context-Eka27zlm.js"], "css": [] }, "routes/app.product-bases": { "id": "routes/app.product-bases", "parentId": "routes/app", "path": "product-bases", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.product-bases-B3tv7GRa.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/Page-CF-lTqsZ.js", "/assets/IndexTable-ZjKDyBoR.js", "/assets/components-CTSN4E9F.js", "/assets/TitleBar-DOWhmfL8.js", "/assets/banner-context-RZ1829w2.js", "/assets/context-Dsk7sDT6.js", "/assets/context-Eka27zlm.js", "/assets/FormLayout-1iHUuPJS.js"], "css": [] }, "routes/app.additional": { "id": "routes/app.additional", "parentId": "routes/app", "path": "additional", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.additional-BxAv_Ty-.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/Page-CF-lTqsZ.js", "/assets/TitleBar-DOWhmfL8.js", "/assets/banner-context-RZ1829w2.js", "/assets/context-Dsk7sDT6.js"], "css": [] }, "routes/app._index": { "id": "routes/app._index", "parentId": "routes/app", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app._index-DTn5B-un.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-CTSN4E9F.js", "/assets/IndexTable-ZjKDyBoR.js", "/assets/Page-CF-lTqsZ.js", "/assets/TitleBar-DOWhmfL8.js", "/assets/context-Dsk7sDT6.js"], "css": [] } }, "url": "/assets/manifest-38747bdb.js", "version": "38747bdb" };
+const serverManifest = { "entry": { "module": "/assets/entry.client-3t2cjhbC.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js"], "css": [] }, "routes": { "root": { "id": "root", "parentId": void 0, "path": "", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/root-V13AiZHr.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js"], "css": [] }, "routes/api.register-printful-webhook": { "id": "routes/api.register-printful-webhook", "parentId": "root", "path": "api/register-printful-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.register-printful-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.register-printify-webhook": { "id": "routes/api.register-printify-webhook", "parentId": "root", "path": "api/register-printify-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.register-printify-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.app.scopes_update": { "id": "routes/webhooks.app.scopes_update", "parentId": "root", "path": "webhooks/app/scopes_update", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.app.scopes_update-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.upload-customer-image": { "id": "routes/api.upload-customer-image", "parentId": "root", "path": "api/upload-customer-image", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.upload-customer-image-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.test-printful-upload": { "id": "routes/api.test-printful-upload", "parentId": "root", "path": "api/test-printful-upload", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.test-printful-upload-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.app.uninstalled": { "id": "routes/webhooks.app.uninstalled", "parentId": "root", "path": "webhooks/app/uninstalled", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.app.uninstalled-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/webhooks.orders.create": { "id": "routes/webhooks.orders.create", "parentId": "root", "path": "webhooks/orders/create", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/webhooks.orders.create-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printful-webhook": { "id": "routes/api.printful-webhook", "parentId": "root", "path": "api/printful-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printful-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printify-catalog": { "id": "routes/api.printify-catalog", "parentId": "root", "path": "api/printify-catalog", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printify-catalog-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.printify-webhook": { "id": "routes/api.printify-webhook", "parentId": "root", "path": "api/printify-webhook", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.printify-webhook-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.debug-templates": { "id": "routes/api.debug-templates", "parentId": "root", "path": "api/debug-templates", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.debug-templates-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.print-files.$id": { "id": "routes/api.print-files.$id", "parentId": "root", "path": "api/print-files/:id", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.print-files._id-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.debug-orders": { "id": "routes/api.debug-orders", "parentId": "root", "path": "api/debug-orders", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.debug-orders-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.product-base": { "id": "routes/api.product-base", "parentId": "root", "path": "api/product-base", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.product-base-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/api.preview": { "id": "routes/api.preview", "parentId": "root", "path": "api/preview", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/api.preview-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/auth.login": { "id": "routes/auth.login", "parentId": "root", "path": "auth/login", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/route-CFLYlRyW.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/styles-gjg6xBRP.js", "/assets/components-BMsPr2Xh.js", "/assets/Page-Crj6d4sk.js", "/assets/FormLayout-OflKvwdZ.js", "/assets/context-C7JewI9A.js", "/assets/context-Eka27zlm.js"], "css": [] }, "routes/_index": { "id": "routes/_index", "parentId": "root", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/route-d0L-PsFk.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js"], "css": ["/assets/route-Xpdx9QZl.css"] }, "routes/auth.$": { "id": "routes/auth.$", "parentId": "root", "path": "auth/*", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/auth._-l0sNRNKZ.js", "imports": [], "css": [] }, "routes/app": { "id": "routes/app", "parentId": "root", "path": "app", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": true, "module": "/assets/app-Drzl_1k1.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js", "/assets/styles-gjg6xBRP.js", "/assets/context-C7JewI9A.js", "/assets/context-Eka27zlm.js"], "css": [] }, "routes/app.printify-import": { "id": "routes/app.printify-import", "parentId": "routes/app", "path": "printify-import", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.printify-import-Dd4cvL1k.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js", "/assets/Page-Crj6d4sk.js", "/assets/TitleBar-oo-afX2C.js", "/assets/Select-Ch97iCdc.js", "/assets/Banner-DlwfWIyG.js", "/assets/context-C7JewI9A.js", "/assets/banner-context-RZ1829w2.js"], "css": [] }, "routes/app.mockup-manager": { "id": "routes/app.mockup-manager", "parentId": "routes/app", "path": "mockup-manager", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.mockup-manager-B7RCcQVN.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js", "/assets/Page-Crj6d4sk.js", "/assets/TitleBar-oo-afX2C.js", "/assets/Banner-DlwfWIyG.js", "/assets/Thumbnail-ncAVoadb.js", "/assets/EmptyState-CIZk8-5r.js", "/assets/context-C7JewI9A.js", "/assets/banner-context-RZ1829w2.js"], "css": [] }, "routes/app.product-bases": { "id": "routes/app.product-bases", "parentId": "routes/app", "path": "product-bases", "index": void 0, "caseSensitive": void 0, "hasAction": true, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.product-bases-hNsUMWsh.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/Page-Crj6d4sk.js", "/assets/Select-Ch97iCdc.js", "/assets/IndexTable-DXXh9XAR.js", "/assets/components-BMsPr2Xh.js", "/assets/TitleBar-oo-afX2C.js", "/assets/Banner-DlwfWIyG.js", "/assets/EmptyState-CIZk8-5r.js", "/assets/Thumbnail-ncAVoadb.js", "/assets/context-C7JewI9A.js", "/assets/context-Eka27zlm.js", "/assets/FormLayout-OflKvwdZ.js", "/assets/banner-context-RZ1829w2.js"], "css": [] }, "routes/app.additional": { "id": "routes/app.additional", "parentId": "routes/app", "path": "additional", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app.additional-BeG_vpA2.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/Page-Crj6d4sk.js", "/assets/TitleBar-oo-afX2C.js", "/assets/banner-context-RZ1829w2.js", "/assets/context-C7JewI9A.js"], "css": [] }, "routes/app._index": { "id": "routes/app._index", "parentId": "routes/app", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasErrorBoundary": false, "module": "/assets/app._index-BUJbXilg.js", "imports": ["/assets/index-BXFZJKZ8.js", "/assets/components-BMsPr2Xh.js", "/assets/IndexTable-DXXh9XAR.js", "/assets/Page-Crj6d4sk.js", "/assets/TitleBar-oo-afX2C.js", "/assets/EmptyState-CIZk8-5r.js", "/assets/context-C7JewI9A.js"], "css": [] } }, "url": "/assets/manifest-eb579302.js", "version": "eb579302" };
 const mode = "production";
 const assetsBuildDirectory = "build/client";
 const basename = "/";
@@ -5395,13 +6916,21 @@ const routes = {
     caseSensitive: void 0,
     module: route3
   },
+  "routes/api.upload-customer-image": {
+    id: "routes/api.upload-customer-image",
+    parentId: "root",
+    path: "api/upload-customer-image",
+    index: void 0,
+    caseSensitive: void 0,
+    module: route4
+  },
   "routes/api.test-printful-upload": {
     id: "routes/api.test-printful-upload",
     parentId: "root",
     path: "api/test-printful-upload",
     index: void 0,
     caseSensitive: void 0,
-    module: route4
+    module: route5
   },
   "routes/webhooks.app.uninstalled": {
     id: "routes/webhooks.app.uninstalled",
@@ -5409,7 +6938,7 @@ const routes = {
     path: "webhooks/app/uninstalled",
     index: void 0,
     caseSensitive: void 0,
-    module: route5
+    module: route6
   },
   "routes/webhooks.orders.create": {
     id: "routes/webhooks.orders.create",
@@ -5417,7 +6946,7 @@ const routes = {
     path: "webhooks/orders/create",
     index: void 0,
     caseSensitive: void 0,
-    module: route6
+    module: route7
   },
   "routes/api.printful-webhook": {
     id: "routes/api.printful-webhook",
@@ -5425,7 +6954,15 @@ const routes = {
     path: "api/printful-webhook",
     index: void 0,
     caseSensitive: void 0,
-    module: route7
+    module: route8
+  },
+  "routes/api.printify-catalog": {
+    id: "routes/api.printify-catalog",
+    parentId: "root",
+    path: "api/printify-catalog",
+    index: void 0,
+    caseSensitive: void 0,
+    module: route9
   },
   "routes/api.printify-webhook": {
     id: "routes/api.printify-webhook",
@@ -5433,7 +6970,7 @@ const routes = {
     path: "api/printify-webhook",
     index: void 0,
     caseSensitive: void 0,
-    module: route8
+    module: route10
   },
   "routes/api.debug-templates": {
     id: "routes/api.debug-templates",
@@ -5441,7 +6978,7 @@ const routes = {
     path: "api/debug-templates",
     index: void 0,
     caseSensitive: void 0,
-    module: route9
+    module: route11
   },
   "routes/api.print-files.$id": {
     id: "routes/api.print-files.$id",
@@ -5449,7 +6986,7 @@ const routes = {
     path: "api/print-files/:id",
     index: void 0,
     caseSensitive: void 0,
-    module: route10
+    module: route12
   },
   "routes/api.debug-orders": {
     id: "routes/api.debug-orders",
@@ -5457,7 +6994,7 @@ const routes = {
     path: "api/debug-orders",
     index: void 0,
     caseSensitive: void 0,
-    module: route11
+    module: route13
   },
   "routes/api.product-base": {
     id: "routes/api.product-base",
@@ -5465,7 +7002,7 @@ const routes = {
     path: "api/product-base",
     index: void 0,
     caseSensitive: void 0,
-    module: route12
+    module: route14
   },
   "routes/api.preview": {
     id: "routes/api.preview",
@@ -5473,7 +7010,7 @@ const routes = {
     path: "api/preview",
     index: void 0,
     caseSensitive: void 0,
-    module: route13
+    module: route15
   },
   "routes/auth.login": {
     id: "routes/auth.login",
@@ -5481,7 +7018,7 @@ const routes = {
     path: "auth/login",
     index: void 0,
     caseSensitive: void 0,
-    module: route14
+    module: route16
   },
   "routes/_index": {
     id: "routes/_index",
@@ -5489,7 +7026,7 @@ const routes = {
     path: void 0,
     index: true,
     caseSensitive: void 0,
-    module: route15
+    module: route17
   },
   "routes/auth.$": {
     id: "routes/auth.$",
@@ -5497,7 +7034,7 @@ const routes = {
     path: "auth/*",
     index: void 0,
     caseSensitive: void 0,
-    module: route16
+    module: route18
   },
   "routes/app": {
     id: "routes/app",
@@ -5505,7 +7042,23 @@ const routes = {
     path: "app",
     index: void 0,
     caseSensitive: void 0,
-    module: route17
+    module: route19
+  },
+  "routes/app.printify-import": {
+    id: "routes/app.printify-import",
+    parentId: "routes/app",
+    path: "printify-import",
+    index: void 0,
+    caseSensitive: void 0,
+    module: route20
+  },
+  "routes/app.mockup-manager": {
+    id: "routes/app.mockup-manager",
+    parentId: "routes/app",
+    path: "mockup-manager",
+    index: void 0,
+    caseSensitive: void 0,
+    module: route21
   },
   "routes/app.product-bases": {
     id: "routes/app.product-bases",
@@ -5513,7 +7066,7 @@ const routes = {
     path: "product-bases",
     index: void 0,
     caseSensitive: void 0,
-    module: route18
+    module: route22
   },
   "routes/app.additional": {
     id: "routes/app.additional",
@@ -5521,7 +7074,7 @@ const routes = {
     path: "additional",
     index: void 0,
     caseSensitive: void 0,
-    module: route19
+    module: route23
   },
   "routes/app._index": {
     id: "routes/app._index",
@@ -5529,7 +7082,7 @@ const routes = {
     path: void 0,
     index: true,
     caseSensitive: void 0,
-    module: route20
+    module: route24
   }
 };
 export {
