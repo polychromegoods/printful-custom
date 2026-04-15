@@ -393,11 +393,13 @@ function PrintAreaEditor({
   printArea,
   onPrintAreaChange,
   width = 400,
+  printFileAspectRatio,
 }: {
   mockupUrl: string;
   printArea: { x: number; y: number; w: number; h: number };
   onPrintAreaChange: (pa: { x: number; y: number; w: number; h: number }) => void;
   width?: number;
+  printFileAspectRatio?: number; // width / height of the print file
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -447,9 +449,31 @@ function PrintAreaEditor({
         onPrintAreaChange({ ...printArea, x: newX, y: newY });
         setDragStart({ x, y });
       } else if (resizing) {
-        const newW = Math.max(10, Math.min(100 - printArea.x, printArea.w + dx));
-        const newH = Math.max(10, Math.min(100 - printArea.y, printArea.h + dy));
-        onPrintAreaChange({ ...printArea, w: newW, h: newH });
+        // If we have a print file aspect ratio, lock the resize to that ratio
+        // The ratio is in print-file space (width/height), but we need to account
+        // for the mockup image's own aspect ratio on screen.
+        // Since print area is in % of the mockup image, and the mockup image
+        // may not be square, we need to convert.
+        if (printFileAspectRatio && printFileAspectRatio > 0) {
+          // Use the larger delta to drive the resize
+          const newW = Math.max(10, Math.min(100 - printArea.x, printArea.w + dx));
+          // Convert: print area % width maps to actual pixels differently than % height
+          // because the mockup image has its own aspect ratio.
+          // We need: (newW% * imgWidth) / (newH% * imgHeight) = printFileAspectRatio
+          // So: newH% = (newW% * imgWidth) / (printFileAspectRatio * imgHeight)
+          // In terms of the container: imgAspect = imgWidth / imgHeight
+          // So: newH% = (newW% * imgAspect) / printFileAspectRatio
+          const containerAspect = containerRef.current
+            ? containerRef.current.offsetWidth / containerRef.current.offsetHeight
+            : 1;
+          const newH = (newW * containerAspect) / printFileAspectRatio;
+          const clampedH = Math.max(10, Math.min(100 - printArea.y, newH));
+          onPrintAreaChange({ ...printArea, w: newW, h: clampedH });
+        } else {
+          const newW = Math.max(10, Math.min(100 - printArea.x, printArea.w + dx));
+          const newH = Math.max(10, Math.min(100 - printArea.y, printArea.h + dy));
+          onPrintAreaChange({ ...printArea, w: newW, h: newH });
+        }
         setDragStart({ x, y });
       }
     };
@@ -837,6 +861,11 @@ export default function MockupManagerPage() {
                     printArea={printArea}
                     onPrintAreaChange={setPrintArea}
                     width={450}
+                    printFileAspectRatio={
+                      selectedBase.printFileWidth && selectedBase.printFileHeight
+                        ? selectedBase.printFileWidth / selectedBase.printFileHeight
+                        : undefined
+                    }
                   />
 
                   <InlineStack gap="300">
@@ -845,6 +874,11 @@ export default function MockupManagerPage() {
                       W: {printArea.w.toFixed(1)}% · H: {printArea.h.toFixed(1)}%
                     </Text>
                   </InlineStack>
+                  {selectedBase.printFileWidth && selectedBase.printFileHeight && (
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Print file: {selectedBase.printFileWidth} × {selectedBase.printFileHeight}px — aspect ratio locked
+                    </Text>
+                  )}
                 </BlockStack>
               </Card>
 

@@ -368,12 +368,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           technique: template.technique,
           placementKey: template.placementKey,
           placementName: placementSpec?.displayName || template.placementKey,
-          printArea: {
-            x: template.printAreaX,
-            y: template.printAreaY,
-            width: template.printAreaWidth,
-            height: template.printAreaHeight,
-          },
+          printArea: dbProductBase
+            ? {
+                x: dbProductBase.defaultPrintAreaX,
+                y: dbProductBase.defaultPrintAreaY,
+                width: dbProductBase.defaultPrintAreaWidth,
+                height: dbProductBase.defaultPrintAreaHeight,
+              }
+            : {
+                x: template.printAreaX,
+                y: template.printAreaY,
+                width: template.printAreaWidth,
+                height: template.printAreaHeight,
+              },
           printFileSize: placementSpec
             ? {
                 width: placementSpec.fileSizePx?.width || placementSpec.fileSizePx?.width,

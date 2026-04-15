@@ -307,14 +307,30 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           : null);
 
       if (template) {
-        printArea = {
-          x: template.printAreaX,
-          y: template.printAreaY,
-          width: template.printAreaWidth,
-          height: template.printAreaHeight,
-        };
-
         const productBase = getProductBase(template.productBaseSlug);
+
+        // Check DB-managed product base for authoritative print area + mockup
+        const dbProductBase = await db.productBaseDef.findFirst({
+          where: { slug: template.productBaseSlug, isActive: true },
+          include: { variants: { where: { isEnabled: true } } },
+        });
+
+        // DB product base print area is authoritative (from Mockup Manager)
+        if (dbProductBase) {
+          printArea = {
+            x: dbProductBase.defaultPrintAreaX,
+            y: dbProductBase.defaultPrintAreaY,
+            width: dbProductBase.defaultPrintAreaWidth,
+            height: dbProductBase.defaultPrintAreaHeight,
+          };
+        } else {
+          printArea = {
+            x: template.printAreaX,
+            y: template.printAreaY,
+            width: template.printAreaWidth,
+            height: template.printAreaHeight,
+          };
+        }
 
         // STEP 1: DB mockup images (user-uploaded, most reliable)
         if (template.mockupImages.length > 0) {
@@ -354,7 +370,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           }
         }
 
-        // STEP 2: Registry variantMockups
+        // STEP 2: DB product base variant mockups
+        if (!baseImageUrl && colorName && dbProductBase?.variants) {
+          const dbVariant = dbProductBase.variants.find(
+            (v) => v.color.toLowerCase() === colorName.toLowerCase()
+          );
+          if (dbVariant?.mockupImageUrl) {
+            baseImageUrl = dbVariant.mockupImageUrl;
+          }
+        }
+
+        // STEP 3: Registry variantMockups
         if (!baseImageUrl && colorName && productBase?.variantMockups) {
           const registryUrl =
             productBase.variantMockups[colorName] ||
@@ -366,7 +392,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           }
         }
 
-        // STEP 3: Registry default
+        // STEP 4: DB product base default mockup
+        if (!baseImageUrl && dbProductBase?.defaultMockupUrl) {
+          baseImageUrl = dbProductBase.defaultMockupUrl;
+        }
+
+        // STEP 5: Registry default
         if (!baseImageUrl && productBase?.defaultMockupUrl) {
           baseImageUrl = productBase.defaultMockupUrl;
         }

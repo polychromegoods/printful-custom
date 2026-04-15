@@ -58,6 +58,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     orderBy: { createdAt: "desc" },
   });
 
+  // Also load DB-managed product bases (from Mockup Manager / imports)
+  const dbProductBases = await db.productBaseDef.findMany({
+    where: { shop: session.shop, isActive: true },
+    include: { variants: { where: { isEnabled: true }, orderBy: { sortOrder: "asc" } } },
+  });
+
   return json({
     templates,
     shop: session.shop,
@@ -69,6 +75,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       category: pb.category,
       techniques: pb.techniques,
       variants: pb.variants.map((v) => ({ color: v.color, colorHex: v.colorHex })),
+    })),
+    dbProductBases: dbProductBases.map((db) => ({
+      slug: db.slug,
+      name: db.name,
+      brand: db.brand,
+      model: db.model,
+      category: db.category,
+      defaultMockupUrl: db.defaultMockupUrl,
+      defaultPrintAreaX: db.defaultPrintAreaX,
+      defaultPrintAreaY: db.defaultPrintAreaY,
+      defaultPrintAreaWidth: db.defaultPrintAreaWidth,
+      defaultPrintAreaHeight: db.defaultPrintAreaHeight,
+      printFileWidth: db.printFileWidth,
+      printFileHeight: db.printFileHeight,
+      printFileDpi: db.printFileDpi,
+      fulfillmentProvider: db.fulfillmentProvider,
+      variants: db.variants.map((v) => ({
+        color: v.color,
+        colorHex: v.colorHex,
+        mockupImageUrl: v.mockupImageUrl,
+      })),
     })),
     threadColors: EMBROIDERY_THREAD_COLORS,
     fonts: AVAILABLE_FONTS,
@@ -486,7 +513,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function ProductBasesPage() {
-  const { templates, productBases, threadColors, fonts } = useLoaderData<typeof loader>();
+  const { templates, productBases, dbProductBases, threadColors, fonts } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -546,6 +573,7 @@ export default function ProductBasesPage() {
 
   // Derived state
   const selectedBase = productBases.find((pb) => pb.slug === selectedBaseSlug);
+  const selectedDbBase = dbProductBases.find((db) => db.slug === selectedBaseSlug);
   const availableTechniques = selectedBase?.techniques || [];
   const selectedBaseFromRegistry = PRODUCT_BASES.find((pb) => pb.slug === selectedBaseSlug);
   const availablePlacements = selectedBaseFromRegistry && selectedTechnique
@@ -605,19 +633,28 @@ export default function ProductBasesPage() {
       const vc = JSON.parse(template.enabledVariantColors);
       setEnabledVariantColors(vc);
     } catch { setEnabledVariantColors([]); }
-    // Use registry defaults for print area position (in case config was updated)
-    const editBase = PRODUCT_BASES.find((pb) => pb.slug === template.productBaseSlug);
-    const editPlacement = editBase?.placements.find((p) => p.placementKey === template.placementKey);
-    if (editPlacement) {
-      setPrintAreaX(editPlacement.mockupPosition.x);
-      setPrintAreaY(editPlacement.mockupPosition.y);
-      setPrintAreaWidth(editPlacement.mockupPosition.width);
-      setPrintAreaHeight(editPlacement.mockupPosition.height);
+    // Use DB product base print area (Mockup Manager) as authoritative source
+    const editDbBase = dbProductBases.find((db) => db.slug === template.productBaseSlug);
+    if (editDbBase) {
+      setPrintAreaX(editDbBase.defaultPrintAreaX);
+      setPrintAreaY(editDbBase.defaultPrintAreaY);
+      setPrintAreaWidth(editDbBase.defaultPrintAreaWidth);
+      setPrintAreaHeight(editDbBase.defaultPrintAreaHeight);
     } else {
-      setPrintAreaX(template.printAreaX);
-      setPrintAreaY(template.printAreaY);
-      setPrintAreaWidth(template.printAreaWidth);
-      setPrintAreaHeight(template.printAreaHeight);
+      // Fall back to static registry, then template stored values
+      const editBase = PRODUCT_BASES.find((pb) => pb.slug === template.productBaseSlug);
+      const editPlacement = editBase?.placements.find((p) => p.placementKey === template.placementKey);
+      if (editPlacement) {
+        setPrintAreaX(editPlacement.mockupPosition.x);
+        setPrintAreaY(editPlacement.mockupPosition.y);
+        setPrintAreaWidth(editPlacement.mockupPosition.width);
+        setPrintAreaHeight(editPlacement.mockupPosition.height);
+      } else {
+        setPrintAreaX(template.printAreaX);
+        setPrintAreaY(template.printAreaY);
+        setPrintAreaWidth(template.printAreaWidth);
+        setPrintAreaHeight(template.printAreaHeight);
+      }
     }
     setShopifyProductId(template.shopifyProductId);
     setProductTitle(template.productTitle);
@@ -627,14 +664,24 @@ export default function ProductBasesPage() {
   }, [templates]);
 
   // When base changes, set defaults (only in create mode)
+  // Prefer DB product base print area (from Mockup Manager) over static registry
   useEffect(() => {
-    if (selectedPlacementSpec && !editingTemplateId) {
-      setPrintAreaX(selectedPlacementSpec.mockupPosition.x);
-      setPrintAreaY(selectedPlacementSpec.mockupPosition.y);
-      setPrintAreaWidth(selectedPlacementSpec.mockupPosition.width);
-      setPrintAreaHeight(selectedPlacementSpec.mockupPosition.height);
+    if (!editingTemplateId) {
+      if (selectedDbBase) {
+        // DB product base is authoritative — use Mockup Manager values
+        setPrintAreaX(selectedDbBase.defaultPrintAreaX);
+        setPrintAreaY(selectedDbBase.defaultPrintAreaY);
+        setPrintAreaWidth(selectedDbBase.defaultPrintAreaWidth);
+        setPrintAreaHeight(selectedDbBase.defaultPrintAreaHeight);
+      } else if (selectedPlacementSpec) {
+        // Fall back to static registry placement spec
+        setPrintAreaX(selectedPlacementSpec.mockupPosition.x);
+        setPrintAreaY(selectedPlacementSpec.mockupPosition.y);
+        setPrintAreaWidth(selectedPlacementSpec.mockupPosition.width);
+        setPrintAreaHeight(selectedPlacementSpec.mockupPosition.height);
+      }
     }
-  }, [selectedPlacementSpec, editingTemplateId]);
+  }, [selectedPlacementSpec, selectedDbBase, editingTemplateId]);
 
   // When technique changes, add default layer (only in create mode)
   useEffect(() => {
@@ -881,19 +928,30 @@ export default function ProductBasesPage() {
   );
 
   // Derive the mockup URL for the layer editor based on selected preview variant color
+  // Priority: DB product base variant mockup > DB product base default > static registry > template mockup
   const editorMockupUrl = (() => {
-    // If a preview variant color is selected and the registry has a mockup for it, use that
+    // Check DB product base variant mockups first
+    if (previewVariantColor && selectedDbBase?.variants) {
+      const dbVariant = selectedDbBase.variants.find((v) => v.color === previewVariantColor);
+      if (dbVariant?.mockupImageUrl) return dbVariant.mockupImageUrl;
+    }
+    // Then check static registry variant mockups
     if (previewVariantColor && selectedBaseFromRegistry?.variantMockups) {
       const url = selectedBaseFromRegistry.variantMockups[previewVariantColor];
       if (url) return url;
     }
-    // Otherwise fall back to editing template's mockup or default
+    // DB product base default mockup (from Mockup Manager)
+    if (selectedDbBase?.defaultMockupUrl) return selectedDbBase.defaultMockupUrl;
+    // Otherwise fall back to editing template's mockup or static registry default
     if (editingTemplateId) {
       const tmpl = templates.find((t) => t.id === editingTemplateId);
       if (tmpl?.mockupImages?.[0]?.imageUrl) return tmpl.mockupImages[0].imageUrl;
     }
     return selectedBaseFromRegistry?.defaultMockupUrl || undefined;
   })();
+
+  // Lock print area in template wizard when DB product base has print area set
+  const shouldLockPrintArea = !!selectedDbBase;
 
   const renderStep3 = () => (
     <BlockStack gap="400">
@@ -923,20 +981,31 @@ export default function ProductBasesPage() {
           </select>
         </InlineStack>
       )}
+      {shouldLockPrintArea && (
+        <Banner tone="info">
+          <Text as="p" variant="bodyMd">
+            Print area is locked to the position set in the Mockup Manager.
+            To change it, go to the Mockup Manager page.
+          </Text>
+        </Banner>
+      )}
       <LayerEditor
         layers={layers as LayerData[]}
         onLayersChange={(newLayers) => setLayers(newLayers)}
         printArea={{ x: printAreaX, y: printAreaY, width: printAreaWidth, height: printAreaHeight }}
         onPrintAreaChange={(pa) => {
-          setPrintAreaX(pa.x);
-          setPrintAreaY(pa.y);
-          setPrintAreaWidth(pa.width);
-          setPrintAreaHeight(pa.height);
+          if (!shouldLockPrintArea) {
+            setPrintAreaX(pa.x);
+            setPrintAreaY(pa.y);
+            setPrintAreaWidth(pa.width);
+            setPrintAreaHeight(pa.height);
+          }
         }}
         fonts={fonts.map((f) => ({ key: f.key, displayName: f.displayName }))}
         productCategory={selectedBase?.category}
         technique={selectedTechnique}
         mockupImageUrl={editorMockupUrl}
+        lockPrintArea={shouldLockPrintArea}
       />
     </BlockStack>
   );

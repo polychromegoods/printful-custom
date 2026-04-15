@@ -65,6 +65,7 @@ interface LayerEditorProps {
   fonts: FontOption[];
   productCategory?: string;
   technique?: string;
+  lockPrintArea?: boolean; // When true, print area is display-only (inherited from Mockup Manager)
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -110,6 +111,7 @@ export function LayerEditor({
   fonts,
   productCategory,
   technique,
+  lockPrintArea = false,
 }: LayerEditorProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [selectedLayerIndex, setSelectedLayerIndex] = useState<number | null>(null);
@@ -209,11 +211,11 @@ export function LayerEditor({
       const dx = pos.x - dragStart.x;
       const dy = pos.y - dragStart.y;
 
-      if (dragMode === "move-printarea") {
+      if (dragMode === "move-printarea" && !lockPrintArea) {
         const newX = Math.max(0, Math.min(100 - dragStartValues.w, dragStartValues.x + dx));
         const newY = Math.max(0, Math.min(100 - dragStartValues.h, dragStartValues.y + dy));
         onPrintAreaChange({ ...printArea, x: Math.round(newX * 10) / 10, y: Math.round(newY * 10) / 10 });
-      } else if (dragMode.startsWith("resize-printarea")) {
+      } else if (dragMode.startsWith("resize-printarea") && !lockPrintArea) {
         const dir = dragMode.replace("resize-printarea-", "");
         let { x, y, w, h } = dragStartValues;
 
@@ -499,12 +501,14 @@ export function LayerEditor({
                 e.stopPropagation();
                 setSelectedElement("printarea");
                 setSelectedLayerIndex(null);
-                startDrag(e, "move-printarea", {
-                  x: printArea.x,
-                  y: printArea.y,
-                  w: printArea.width,
-                  h: printArea.height,
-                });
+                if (!lockPrintArea) {
+                  startDrag(e, "move-printarea", {
+                    x: printArea.x,
+                    y: printArea.y,
+                    w: printArea.width,
+                    h: printArea.height,
+                  });
+                }
               }}
               style={{
                 position: "absolute",
@@ -512,11 +516,13 @@ export function LayerEditor({
                 top: `${printArea.y}%`,
                 width: `${printArea.width}%`,
                 height: `${printArea.height}%`,
-                border: `2px dashed ${selectedElement === "printarea" ? "#005fcc" : "#007ace"}`,
-                backgroundColor: selectedElement === "printarea"
-                  ? "rgba(0, 122, 206, 0.08)"
-                  : "rgba(0, 122, 206, 0.04)",
-                cursor: dragMode === "move-printarea" ? "grabbing" : "move",
+                border: `2px dashed ${lockPrintArea ? "#999" : (selectedElement === "printarea" ? "#005fcc" : "#007ace")}`,
+                backgroundColor: lockPrintArea
+                  ? "rgba(0, 0, 0, 0.03)"
+                  : selectedElement === "printarea"
+                    ? "rgba(0, 122, 206, 0.08)"
+                    : "rgba(0, 122, 206, 0.04)",
+                cursor: lockPrintArea ? "default" : (dragMode === "move-printarea" ? "grabbing" : "move"),
                 zIndex: 10,
                 boxSizing: "border-box",
               }}
@@ -534,11 +540,11 @@ export function LayerEditor({
                   pointerEvents: "none",
                 }}
               >
-                Print Area ({Math.round(printArea.width)}% × {Math.round(printArea.height)}%)
+                Print Area ({Math.round(printArea.width)}% × {Math.round(printArea.height)}%){lockPrintArea ? " — Locked" : ""}
               </div>
 
-              {/* Print area resize handles */}
-              {selectedElement === "printarea" &&
+              {/* Print area resize handles (hidden when locked) */}
+              {selectedElement === "printarea" && !lockPrintArea &&
                 renderResizeHandles(
                   "resize-printarea",
                   { x: 0, y: 0, w: 100, h: 100 },
@@ -787,41 +793,52 @@ export function LayerEditor({
           {selectedElement === "printarea" && (
             <Card>
               <BlockStack gap="200">
-                <Text as="h3" variant="headingSm">Print Area</Text>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <TextField
-                    label="X %"
-                    type="number"
-                    value={String(Math.round(printArea.x))}
-                    onChange={(val) => onPrintAreaChange({ ...printArea, x: parseFloat(val) || 0 })}
-                    autoComplete="off"
-                    size="slim"
-                  />
-                  <TextField
-                    label="Y %"
-                    type="number"
-                    value={String(Math.round(printArea.y))}
-                    onChange={(val) => onPrintAreaChange({ ...printArea, y: parseFloat(val) || 0 })}
-                    autoComplete="off"
-                    size="slim"
-                  />
-                  <TextField
-                    label="Width %"
-                    type="number"
-                    value={String(Math.round(printArea.width))}
-                    onChange={(val) => onPrintAreaChange({ ...printArea, width: parseFloat(val) || 10 })}
-                    autoComplete="off"
-                    size="slim"
-                  />
-                  <TextField
-                    label="Height %"
-                    type="number"
-                    value={String(Math.round(printArea.height))}
-                    onChange={(val) => onPrintAreaChange({ ...printArea, height: parseFloat(val) || 10 })}
-                    autoComplete="off"
-                    size="slim"
-                  />
-                </div>
+                <Text as="h3" variant="headingSm">Print Area{lockPrintArea ? " (Locked)" : ""}</Text>
+                {lockPrintArea ? (
+                  <BlockStack gap="100">
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Print area position is set in the Mockup Manager and cannot be changed here.
+                    </Text>
+                    <Text as="p" variant="bodySm">
+                      X: {Math.round(printArea.x)}% · Y: {Math.round(printArea.y)}% · W: {Math.round(printArea.width)}% · H: {Math.round(printArea.height)}%
+                    </Text>
+                  </BlockStack>
+                ) : (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <TextField
+                      label="X %"
+                      type="number"
+                      value={String(Math.round(printArea.x))}
+                      onChange={(val) => onPrintAreaChange({ ...printArea, x: parseFloat(val) || 0 })}
+                      autoComplete="off"
+                      size="slim"
+                    />
+                    <TextField
+                      label="Y %"
+                      type="number"
+                      value={String(Math.round(printArea.y))}
+                      onChange={(val) => onPrintAreaChange({ ...printArea, y: parseFloat(val) || 0 })}
+                      autoComplete="off"
+                      size="slim"
+                    />
+                    <TextField
+                      label="Width %"
+                      type="number"
+                      value={String(Math.round(printArea.width))}
+                      onChange={(val) => onPrintAreaChange({ ...printArea, width: parseFloat(val) || 10 })}
+                      autoComplete="off"
+                      size="slim"
+                    />
+                    <TextField
+                      label="Height %"
+                      type="number"
+                      value={String(Math.round(printArea.height))}
+                      onChange={(val) => onPrintAreaChange({ ...printArea, height: parseFloat(val) || 10 })}
+                      autoComplete="off"
+                      size="slim"
+                    />
+                  </div>
+                )}
               </BlockStack>
             </Card>
           )}
