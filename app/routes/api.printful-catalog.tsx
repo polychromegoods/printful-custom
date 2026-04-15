@@ -41,7 +41,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
       const products = allProducts.map((p) => ({
         id: p.id,
-        title: p.type_name || p.title,
+        title: p.title || p.type_name,
+        typeName: p.type_name || "",
+        type: p.type || "",
         brand: p.brand || null,
         model: p.model || p.type_name,
         image: p.image || null,

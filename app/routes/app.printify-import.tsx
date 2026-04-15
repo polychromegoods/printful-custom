@@ -318,7 +318,8 @@ function PrintfulSearch({ onSelect }: { onSelect: (product: any) => void }) {
       const q = query.toLowerCase();
       setResults(allProducts.filter(
         (p) => p.title?.toLowerCase().includes(q) || p.brand?.toLowerCase().includes(q) ||
-          p.model?.toLowerCase().includes(q) || String(p.id).includes(q)
+          p.model?.toLowerCase().includes(q) || p.type?.toLowerCase().includes(q) ||
+          p.typeName?.toLowerCase().includes(q) || String(p.id).includes(q)
       ).slice(0, 20));
     }, 200);
   }, [query, allProducts, loaded]);
