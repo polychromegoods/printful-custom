@@ -33,7 +33,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, type ChangeEvent } from "react";
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -228,6 +228,99 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
 
       return json({ success: true });
+    }
+
+    // ── Upload default mockup for a product base (no variants needed) ──
+    if (intent === "upload_base_mockup") {
+      const baseId = formData.get("baseId") as string;
+      const fileBase64 = formData.get("fileBase64") as string;
+      const fileName = formData.get("fileName") as string;
+      const fileSize = formData.get("fileSize") as string;
+      const mimeType = formData.get("mimeType") as string;
+
+      // Upload to Shopify Files via staged upload
+      const stagedRes = await admin.graphql(
+        `#graphql
+        mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
+          stagedUploadsCreate(input: $input) {
+            stagedTargets {
+              url
+              resourceUrl
+              parameters { name value }
+            }
+            userErrors { field message }
+          }
+        }`,
+        {
+          variables: {
+            input: [{
+              filename: fileName,
+              fileSize: fileSize,
+              mimeType: mimeType,
+              resource: "FILE",
+              httpMethod: "POST",
+            }],
+          },
+        }
+      );
+
+      const stagedData = await stagedRes.json();
+      const target = stagedData.data?.stagedUploadsCreate?.stagedTargets?.[0];
+      if (!target) {
+        return json({ error: "Staged upload failed" }, { status: 500 });
+      }
+
+      const uploadForm = new FormData();
+      for (const param of target.parameters) {
+        uploadForm.append(param.name, param.value);
+      }
+      const base64Data = fileBase64.split(",").pop() || fileBase64;
+      const binaryStr = atob(base64Data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: mimeType });
+      uploadForm.append("file", blob, fileName);
+
+      const uploadRes = await fetch(target.url, { method: "POST", body: uploadForm });
+      if (!uploadRes.ok) {
+        return json({ error: `Upload failed: ${uploadRes.status}` }, { status: 500 });
+      }
+
+      const fileCreateRes = await admin.graphql(
+        `#graphql
+        mutation fileCreate($files: [FileCreateInput!]!) {
+          fileCreate(files: $files) {
+            files {
+              id
+              ... on MediaImage { image { url } }
+              ... on GenericFile { url }
+            }
+            userErrors { field message }
+          }
+        }`,
+        {
+          variables: {
+            files: [{
+              alt: `Base mockup - ${baseId}`,
+              contentType: "IMAGE",
+              originalSource: target.resourceUrl,
+            }],
+          },
+        }
+      );
+
+      const fileData = await fileCreateRes.json();
+      const createdFile = fileData.data?.fileCreate?.files?.[0];
+      const imageUrl = createdFile?.image?.url || createdFile?.url || target.resourceUrl;
+
+      await db.productBaseDef.update({
+        where: { id: baseId },
+        data: { defaultMockupUrl: imageUrl },
+      });
+
+      return json({ success: true, imageUrl });
     }
 
     // ── Delete a product base ──
@@ -480,6 +573,7 @@ export default function MockupManagerPage() {
 
   // Upload state
   const [uploadingVariantId, setUploadingVariantId] = useState<string | null>(null);
+  const [uploadingBase, setUploadingBase] = useState(false);
 
   const selectedBase = productBases.find((b) => b.id === selectedBaseId);
   const selectedVariant = selectedBase?.variants.find((v) => v.id === selectedVariantId);
@@ -596,6 +690,26 @@ export default function MockupManagerPage() {
     }
   }, [selectedBaseId, submit]);
 
+  // Handle base-level default mockup upload
+  const handleBaseMockupUpload = useCallback(async (file: File) => {
+    if (!selectedBaseId) return;
+    setUploadingBase(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      const fd = new FormData();
+      fd.set("intent", "upload_base_mockup");
+      fd.set("baseId", selectedBaseId);
+      fd.set("fileBase64", base64);
+      fd.set("fileName", file.name);
+      fd.set("fileSize", String(file.size));
+      fd.set("mimeType", file.type);
+      submit(fd, { method: "post" });
+      setUploadingBase(false);
+    };
+    reader.readAsDataURL(file);
+  }, [selectedBaseId, submit]);
+
   // Current mockup URL
   const currentMockupUrl = selectedVariant?.mockupImageUrl
     || selectedBase?.defaultMockupUrl
@@ -683,6 +797,40 @@ export default function MockupManagerPage() {
                   <Text as="p" variant="bodySm" tone="subdued">
                     Drag the red rectangle to position the print area. Drag the bottom-right corner to resize.
                   </Text>
+
+                  {/* Base default mockup upload */}
+                  <InlineStack gap="300" blockAlign="center">
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      {selectedBase?.defaultMockupUrl ? "Default mockup:" : "No default mockup yet —"}
+                    </Text>
+                    <label style={{
+                      cursor: "pointer",
+                      padding: "6px 14px",
+                      background: uploadingBase ? "#e0e0e0" : "#333",
+                      color: "white",
+                      borderRadius: "6px",
+                      fontSize: "13px",
+                      fontWeight: 500,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}>
+                      {uploadingBase ? <Spinner size="small" /> : null}
+                      {selectedBase?.defaultMockupUrl ? "Replace Mockup" : "Upload Mockup"}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        style={{ display: "none" }}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleBaseMockupUpload(file);
+                        }}
+                      />
+                    </label>
+                    {selectedBase?.defaultMockupUrl && (
+                      <Thumbnail source={selectedBase.defaultMockupUrl} alt="Default mockup" size="small" />
+                    )}
+                  </InlineStack>
 
                   <PrintAreaEditor
                     mockupUrl={currentMockupUrl}
