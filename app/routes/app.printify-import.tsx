@@ -370,6 +370,8 @@ export default function ImportPage() {
   const isSubmitting = navigation.state !== "idle";
 
   const [selectedTab, setSelectedTab] = useState(0);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   // ── Printify state ──
   const [selectedBlueprint, setSelectedBlueprint] = useState<any>(null);
@@ -521,6 +523,9 @@ export default function ImportPage() {
             )}
 
             <Card>
+              {!mounted ? (
+                <Box padding="400"><Spinner size="small" /></Box>
+              ) : (
               <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab}>
                 <Box padding="400">
                   {/* ── Printify Tab ── */}
@@ -660,6 +665,7 @@ export default function ImportPage() {
                   )}
                 </Box>
               </Tabs>
+              )}
             </Card>
 
             {/* Existing bases summary */}
