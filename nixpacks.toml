@@ -1,0 +1,24 @@
+[phases.setup]
+nixPkgs = [
+  "nodejs_20",
+  "cairo",
+  "pango",
+  "libpng",
+  "libjpeg",
+  "giflib",
+  "librsvg",
+  "pixman",
+  "pkg-config",
+  "fontconfig",
+  "freetype",
+  "vips"
+]
+
+[phases.install]
+cmds = ["pnpm install"]
+
+[phases.build]
+cmds = ["pnpm run build"]
+
+[start]
+cmd = "npx prisma migrate deploy && remix-serve ./build/server/index.js"
