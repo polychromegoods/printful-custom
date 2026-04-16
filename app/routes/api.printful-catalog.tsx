@@ -2,6 +2,7 @@
  * Printful catalog proxy — called from the admin Import page.
  * GET /api/printful-catalog?action=products
  * GET /api/printful-catalog?action=variants&productId=19
+ * GET /api/printful-catalog?action=printfiles&productId=19
  */
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
@@ -10,10 +11,23 @@ import { authenticate } from "../shopify.server";
 const PRINTFUL_TOKEN = process.env.PRINTFUL_TOKEN || "";
 const PRINTFUL_API = "https://api.printful.com";
 
+/** Authenticated fetch — for store-specific endpoints (variants, printfiles) */
 async function pfFetch(path: string) {
   const res = await fetch(`${PRINTFUL_API}${path}`, {
     headers: { Authorization: `Bearer ${PRINTFUL_TOKEN}` },
   });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Printful API error ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+/** Public fetch — no auth token. The /products catalog endpoint returns the
+ *  FULL 480+ product catalog when called without auth. With a store-scoped
+ *  token it only returns products available for that store's techniques. */
+async function pfPublicFetch(path: string) {
+  const res = await fetch(`${PRINTFUL_API}${path}`);
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Printful API error ${res.status}: ${text.slice(0, 200)}`);
@@ -30,18 +44,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   try {
     if (action === "products") {
-      // Fetch all products (paginated — Printful returns up to 100 per page)
-      const allProducts: any[] = [];
-      let offset = 0;
-      const limit = 100;
-      while (true) {
-        const data = await pfFetch(`/products?limit=${limit}&offset=${offset}`);
-        const items: any[] = data.result || [];
-        allProducts.push(...items);
-        if (items.length < limit) break;
-        offset += limit;
-        if (offset > 5000) break; // safety cap
-      }
+      // Fetch the FULL public catalog (no auth = no store filtering)
+      // The Printful /products endpoint returns all ~480 products in one call
+      // when no limit/offset params are used.
+      const data = await pfPublicFetch("/products");
+      const allProducts: any[] = data.result || [];
 
       const products = allProducts.map((p) => ({
         id: p.id,
@@ -62,6 +69,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const productId = url.searchParams.get("productId");
       if (!productId) return json({ error: "productId required" }, { status: 400 });
 
+      // Use authenticated fetch for product details (variants need store context)
       const data = await pfFetch(`/products/${productId}`);
       const rawVariants: any[] = data.result?.variants || [];
 
