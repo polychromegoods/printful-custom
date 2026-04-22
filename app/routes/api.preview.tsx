@@ -2,6 +2,7 @@ import type { LoaderFunctionArgs } from "@remix-run/node";
 import db from "../db.server";
 import { getProductBase } from "../config/product-bases";
 import { getSharp } from "../fonts/setup-fonts";
+import { applyEmbroideryEffect } from "../services/dynamic-mockups.server";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -191,6 +192,79 @@ async function getCachedMockup(
   return { resized, srcW, srcH };
 }
 
+/**
+ * Render the text SVG to a transparent PNG buffer at the given print-area
+ * dimensions, then send it to the Dynamic Mockups Embroidery Effect API.
+ * Returns the embroidery-rendered PNG as a Buffer ready for compositing.
+ *
+ * Falls back to the plain SVG overlay if the API call fails.
+ */
+async function buildEmbroideryOverlay(
+  sharpFn: any,
+  text: string,
+  style: string,
+  color: string,
+  paX: number,
+  paY: number,
+  paW: number,
+  paH: number,
+  previewSize: number,
+): Promise<Buffer> {
+  // 1. Render the text SVG to a PNG at the full preview canvas size
+  const textSvg = buildTextSvg(text, style, color, paX, paY, paW, paH, previewSize);
+
+  // Crop the SVG render down to just the print area so the embroidery API
+  // receives a tight crop of the design (better results, less empty space).
+  const pxX = Math.max(0, Math.round(paX));
+  const pxY = Math.max(0, Math.round(paY));
+  const pxW = Math.min(Math.round(paW), previewSize - pxX);
+  const pxH = Math.min(Math.round(paH), previewSize - pxY);
+
+  const designPng = await sharpFn(Buffer.from(textSvg))
+    .png()
+    .extract({ left: pxX, top: pxY, width: pxW, height: pxH })
+    .toBuffer();
+
+  // 2. Base64-encode and send to Dynamic Mockups
+  const base64Design = designPng.toString("base64");
+
+  try {
+    const { url: embroideryUrl } = await applyEmbroideryEffect({
+      imageBase64: base64Design,
+    });
+
+    // 3. Fetch the embroidery-rendered image and resize it back to print area size
+    const embResp = await fetch(embroideryUrl);
+    if (!embResp.ok) throw new Error(`Failed to fetch embroidery result: ${embResp.status}`);
+    const embBuf = Buffer.from(await embResp.arrayBuffer());
+
+    // Resize the embroidery result to fit the print area
+    const embResized = await sharpFn(embBuf)
+      .resize(pxW, pxH, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer();
+
+    // 4. Place the resized embroidery image onto a full-canvas transparent PNG
+    const canvas = await sharpFn({
+      create: {
+        width: previewSize,
+        height: previewSize,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([{ input: embResized, top: pxY, left: pxX }])
+      .png()
+      .toBuffer();
+
+    return canvas;
+  } catch (err) {
+    // Log and fall back to plain SVG overlay — never break the preview
+    console.error("[Preview] Embroidery API failed, falling back to flat overlay:", err);
+    return sharpFn(Buffer.from(textSvg)).png().toBuffer();
+  }
+}
+
 // ─── Main Loader ────────────────────────────────────────────────────────────
 
 /**
@@ -198,6 +272,10 @@ async function getCachedMockup(
  *
  * Generates a monogram preview image composited onto the real product mockup.
  * Uses sharp (libvips) for all image operations.
+ *
+ * For embroidery-technique templates, the text design is first processed by
+ * the Dynamic Mockups Embroidery Effect API to produce a realistic stitched
+ * rendering before compositing onto the mockup.
  *
  * Supports:
  *   - format=image (default): Returns raw JPEG bytes
@@ -252,6 +330,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // ─── Resolve the product template and mockup image URL ───
   let baseImageUrl: string | null = null;
   let printArea = { x: 25, y: 15, width: 50, height: 35 };
+  let technique = "dtg"; // default; overridden when template is found
 
   if (productId || handle) {
     const numericProductId = productId
@@ -307,6 +386,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           : null);
 
       if (template) {
+        // Capture technique for embroidery rendering decision
+        technique = template.technique || "dtg";
+
         const productBase = getProductBase(template.productBaseSlug);
 
         // Check DB-managed product base for authoritative print area + mockup
@@ -411,6 +493,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const sharpFn = await getSharp();
   let outputBuffer: Buffer;
 
+  // Determine if this is an embroidery product
+  const isEmbroidery = technique === "embroidery";
+
   try {
     if (baseImageUrl) {
       // Fetch mockup (cached) and get metadata
@@ -428,16 +513,26 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const paW = scaledW * (printArea.width / 100);
       const paH = scaledH * (printArea.height / 100);
 
-      // Build SVG text overlay
-      const textSvg = buildTextSvg(text, style, color, paX, paY, paW, paH, previewSize);
+      let overlayBuffer: Buffer;
 
-      // Composite text onto the mockup and output as JPEG for speed
+      if (isEmbroidery) {
+        // ── Embroidery path: send design through Dynamic Mockups API ──
+        overlayBuffer = await buildEmbroideryOverlay(
+          sharpFn, text, style, color, paX, paY, paW, paH, previewSize,
+        );
+      } else {
+        // ── Standard path: flat SVG text overlay ──
+        const textSvg = buildTextSvg(text, style, color, paX, paY, paW, paH, previewSize);
+        overlayBuffer = Buffer.from(textSvg);
+      }
+
+      // Composite overlay onto the mockup and output as JPEG for speed
       outputBuffer = await sharpFn(resizedBase)
-        .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
+        .composite([{ input: overlayBuffer, top: 0, left: 0 }])
         .jpeg({ quality: 80 })
         .toBuffer();
     } else {
-      // No mockup available — render silhouette + text
+      // No mockup available — render silhouette + text/embroidery
       const silhouetteSvg = buildSilhouetteSvg(previewSize);
       const silhouetteBuffer = await sharpFn(Buffer.from(silhouetteSvg))
         .png()
@@ -448,10 +543,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const paW = previewSize * 0.8;
       const paH = previewSize * 0.35;
 
-      const textSvg = buildTextSvg(text, style, color, paX, paY, paW, paH, previewSize);
+      let overlayBuffer: Buffer;
+
+      if (isEmbroidery) {
+        overlayBuffer = await buildEmbroideryOverlay(
+          sharpFn, text, style, color, paX, paY, paW, paH, previewSize,
+        );
+      } else {
+        const textSvg = buildTextSvg(text, style, color, paX, paY, paW, paH, previewSize);
+        overlayBuffer = Buffer.from(textSvg);
+      }
 
       outputBuffer = await sharpFn(silhouetteBuffer)
-        .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
+        .composite([{ input: overlayBuffer, top: 0, left: 0 }])
         .jpeg({ quality: 80 })
         .toBuffer();
     }
