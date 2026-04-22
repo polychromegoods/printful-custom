@@ -64,7 +64,7 @@ async function printfulRequest(
  *
  * Falls back to storing in our DB and serving from our app URL.
  */
-async function uploadToShopifyCDN(
+export async function uploadToShopifyCDN(
   localPath: string,
   shop: string,
   filename: string
